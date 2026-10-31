@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\HsEngine.Core\HsEngine.Core.csproj" />
     <ProjectReference Include="..\HsEngine.Simulation\HsEngine.Simulation.csproj" />
+    <ProjectReference Include="..\HsEngine.Evaluation\HsEngine.Evaluation.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

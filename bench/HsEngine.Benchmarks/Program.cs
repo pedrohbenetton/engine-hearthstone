@@ -38,4 +38,7 @@ public class CloneBenchmarks
 
     [Benchmark]
     public string Hash() => _game.Hash();
+
+    [Benchmark]
+    public ulong StructuralHash() => StateHasher.Compute(_game);
 }

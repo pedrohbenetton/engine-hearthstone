@@ -23,4 +23,13 @@
 2. **Novo gargalo: `Hash()`.** Ele é baseado em string e custa de 8 a 14x o clone, crescendo com o tamanho do jogo. O `LethalSolver` o usa na transposition table, então em busca larga o hash domina o custo. Ação proposta: um hash estrutural incremental (estilo Zobrist), calculado só sobre as tags relevantes, antes do ISMCTS.
 3. **Pressão de GC:** cerca de 35 KB alocados por clone. Monitorar quando houver paralelismo (Server GC, pooling).
 
+## Atualização: `StateHasher` (hash estrutural)
+
+| Operação | 0 ações | 40 ações | 80 ações |
+|---|---:|---:|---:|
+| `Game.Hash()` (string) | 46 µs | 68 µs | 85 µs |
+| `StateHasher.Compute` | 4,4 µs | 5,3 µs | 6,1 µs |
+
+Ganho de ~10–14x; o `LethalSolver` já usa o `StateHasher`.
+
 > `--job short` tem poucas iterações: os números servem como ordem de grandeza, não como medida precisa.

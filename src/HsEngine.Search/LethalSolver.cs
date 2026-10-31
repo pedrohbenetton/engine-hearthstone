@@ -19,7 +19,7 @@ public sealed record LethalResult(
 
 /// <summary>
 /// Exact single-turn lethal search (ADR-0004): depth-first over the current player's actions,
-/// excluding end turn, with a transposition table keyed by game hash.
+/// excluding end turn, with a transposition table keyed by <see cref="StateHasher"/>.
 /// Assumes deterministic effects; random outcomes follow the game's fixed seed.
 /// </summary>
 public sealed class LethalSolver(int maxNodes = 200_000)
@@ -39,7 +39,7 @@ public sealed class LethalSolver(int maxNodes = 200_000)
 
     private sealed class Search(int maxNodes)
     {
-        private readonly HashSet<string> _visited = [];
+        private readonly HashSet<ulong> _visited = [];
 
         public List<int> Path { get; } = [];
         public List<string> Line { get; } = [];
@@ -59,7 +59,7 @@ public sealed class LethalSolver(int maxNodes = 200_000)
             }
             Nodes++;
 
-            if (!_visited.Add(game.Hash()))
+            if (!_visited.Add(StateHasher.Compute(game)))
                 return false;
 
             List<PlayerTask> options = game.CurrentPlayer.Options();

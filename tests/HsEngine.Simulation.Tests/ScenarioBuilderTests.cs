@@ -27,6 +27,24 @@ public class ScenarioBuilderTests
     }
 
     [Fact]
+    public void Next_empty_deck_draw_deals_one_fatigue()
+    {
+        Game game = new ScenarioBuilder().WithOpponentHero(5).Build();
+
+        game.ApplyOptionPath([game.CurrentPlayer.Options().FindIndex(o => o.PlayerTaskType == SabberStoneCore.Tasks.PlayerTasks.PlayerTaskType.END_TURN)]);
+
+        Assert.Equal(4, game.Player2.Hero.Health);
+    }
+
+    [Fact]
+    public void Opponent_hand_is_exactly_what_was_requested()
+    {
+        Game game = new ScenarioBuilder().WithOpponentHand("Fireball").Build();
+
+        Assert.Equal(["Fireball"], game.CurrentOpponent.HandZone.Select(c => c.Card.Name));
+    }
+
+    [Fact]
     public void Unknown_card_name_fails_fast()
     {
         Assert.Throws<ArgumentException>(() => new ScenarioBuilder().WithHand("Not A Card").Build());

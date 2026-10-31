@@ -1,3 +1,4 @@
+using System.Reflection;
 using SabberStoneCore.Enums;
 using SabberStoneCore.Model;
 using SabberStoneCore.Tasks.PlayerTasks;
@@ -9,6 +10,22 @@ public static class GameExtensions
     /// <summary>Deep copy that keeps the random seed, so the copy replays exactly like the original.</summary>
     public static Game DeterministicClone(this Game game) =>
         game.Clone(logging: false, resetRandomSeed: false, history: false);
+
+    /// <summary>
+    /// Deep copy whose random effects follow <paramref name="seed"/>: one sampled world per seed, reproducibly.
+    /// SabberStone only offers a fresh unseeded RNG on clone and keeps <c>Game.Random</c> internal,
+    /// so the setter is bound once by reflection rather than patching the submodule.
+    /// </summary>
+    public static Game CloneWithSeed(this Game game, long seed)
+    {
+        Game clone = game.DeterministicClone();
+        SetRandom(clone, new Util.DeepCloneableRandom(seed));
+        return clone;
+    }
+
+    private static readonly Action<Game, Util.DeepCloneableRandom> SetRandom =
+        typeof(Game).GetProperty("Random", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetMethod!.CreateDelegate<Action<Game, Util.DeepCloneableRandom>>();
 
     public static bool OpponentDefeated(this Game game) =>
         game.CurrentOpponent.Hero.IsDead || game.CurrentOpponent.PlayState is PlayState.LOSING or PlayState.LOST;

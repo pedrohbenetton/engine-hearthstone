@@ -15,9 +15,12 @@ public sealed class ScenarioBuilder
     private CardClass _heroClass = CardClass.WARRIOR;
     private CardClass _opponentClass = CardClass.WARRIOR;
     private int _mana = 10;
+    private int _heroHealth = 30;
+    private int _heroArmor;
     private int _opponentHealth = 30;
     private int _opponentArmor;
     private readonly List<string> _hand = [];
+    private readonly List<string> _opponentHand = [];
     private readonly List<string> _board = [];
     private readonly List<string> _opponentBoard = [];
 
@@ -31,6 +34,19 @@ public sealed class ScenarioBuilder
     public ScenarioBuilder WithMana(int mana)
     {
         _mana = mana;
+        return this;
+    }
+
+    public ScenarioBuilder WithHero(int health, int armor = 0)
+    {
+        _heroHealth = health;
+        _heroArmor = armor;
+        return this;
+    }
+
+    public ScenarioBuilder WithOpponentHand(params string[] cardNames)
+    {
+        _opponentHand.AddRange(cardNames);
         return this;
     }
 
@@ -80,8 +96,12 @@ public sealed class ScenarioBuilder
         Controller me = game.CurrentPlayer;
         Controller opponent = game.CurrentOpponent;
 
-        // Drawing the opening hand from an empty deck deals fatigue; the scenario defines health explicitly.
-        me.Hero.Damage = 0;
+        // Drawing the opening hand from an empty deck deals fatigue and advances the fatigue counter;
+        // the scenario defines health explicitly and starts both counters fresh.
+        me.Hero.Fatigue = 0;
+        opponent.Hero.Fatigue = 0;
+        me.Hero.Damage = 30 - _heroHealth;
+        me.Hero.Armor = _heroArmor;
         opponent.Hero.Damage = 30 - _opponentHealth;
         opponent.Hero.Armor = _opponentArmor;
 
@@ -90,6 +110,12 @@ public sealed class ScenarioBuilder
 
         foreach (string name in _hand)
             Generic.DrawCard(me, Find(name));
+
+        // Player 2 receives The Coin at game start; the scenario defines its hand explicitly.
+        foreach (IPlayable card in opponent.HandZone.ToList())
+            opponent.HandZone.Remove(card);
+        foreach (string name in _opponentHand)
+            Generic.DrawCard(opponent, Find(name));
 
         foreach (string name in _board)
             Summon(game, me, name).IsExhausted = false;
