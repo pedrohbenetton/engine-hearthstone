@@ -1,0 +1,2 @@
+<!-- Stops MSBuild from inheriting the repo-root props: third-party code builds with its own settings. -->
+<Project />

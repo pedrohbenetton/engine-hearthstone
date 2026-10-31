@@ -1,0 +1,7 @@
+<!-- SabberStone (2021) sets LangVersion=latest; under C# 14 first-class Span conversions change LINQ overload
+     resolution and break its build (CS0029 in SpecificTask.cs). Pin it here instead of patching the submodule. -->
+<Project>
+  <PropertyGroup>
+    <LangVersion>13</LangVersion>
+  </PropertyGroup>
+</Project>

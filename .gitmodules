@@ -1,0 +1,3 @@
+[submodule "external/SabberStone"]
+	path = external/SabberStone
+	url = https://github.com/HearthSim/SabberStone.git
