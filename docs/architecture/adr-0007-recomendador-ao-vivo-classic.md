@@ -1,6 +1,6 @@
 # ADR-0007 — Recomendador ao vivo, formato Classic primeiro
 
-- **Status:** accepted (2026-10-31), decisão do PO
+- **Status:** accepted (2026-10-31), decisão do PO; **item 2 e R7 substituídos pelo [ADR-0008](adr-0008-padrao-com-proxy-de-cartas.md)** (o formato Classic foi removido do jogo)
 - **Substitui:** o item 1 do [ADR-0005](adr-0005-modo-offline-e-ingestao.md) (produto offline primeiro)
 - **Complementa:** o [ADR-0003](adr-0003-motor-de-regras-sabberstone.md) (pool de cartas)
 

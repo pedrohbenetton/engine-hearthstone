@@ -136,6 +136,9 @@ public sealed class ScenarioBuilder
         return minion;
     }
 
-    private static Card Find(string name) =>
-        Cards.FromName(name) ?? throw new ArgumentException($"No collectible card named \"{name}\".", nameof(name));
+    // Accepts a collectible card name or a card id; ids reach proxies (ADR-0008), which are not collectible.
+    private static Card Find(string nameOrId) =>
+        Cards.FromName(nameOrId)
+        ?? Cards.All.FirstOrDefault(c => c.Id == nameOrId)
+        ?? throw new ArgumentException($"No collectible card named \"{nameOrId}\" and no card with that id.", nameof(nameOrId));
 }

@@ -5,6 +5,10 @@
     <ProjectReference Include="..\..\external\SabberStone\SabberStoneCore\SabberStoneCore.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\..\data\cards\cards.255790.json" Link="cards\cards.255790.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
