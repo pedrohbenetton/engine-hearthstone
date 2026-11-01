@@ -480,3 +480,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Power.log test fixtures (anonymised) are source, not build output.
+!tests/**/Fixtures/*.log
