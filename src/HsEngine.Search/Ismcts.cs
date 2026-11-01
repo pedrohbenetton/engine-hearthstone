@@ -49,7 +49,7 @@ public sealed record SearchResult(IReadOnlyList<RankedAction> Actions, int Itera
 public sealed class Ismcts(BoardEvaluator? evaluator = null, IDeterminizer? determinizer = null, IOpponentPolicy? opponent = null)
 {
     private readonly BoardEvaluator _evaluator = evaluator ?? new BoardEvaluator();
-    private readonly IDeterminizer _determinizer = determinizer ?? new ChanceDeterminizer();
+    private readonly IDeterminizer _determinizer = determinizer ?? new HiddenInformationDeterminizer();
     private readonly IOpponentPolicy _opponent = opponent ?? new GreedyOpponentPolicy(evaluator ?? new BoardEvaluator());
 
     public SearchResult Search(Game root, SearchOptions options)

@@ -11,6 +11,16 @@
 4. Efeitos aleatórios viram nós de chance amostrados, não expandidos.
 5. Paralelismo por *root parallelization*: cada thread usa suas próprias determinizações.
 
+## Implementação (2026-10-31)
+
+- **Identidade de ação (`ActionKey`):** é semântica (tipo, carta de origem, posição no board, alvo codificado, posicionamento, escolha), não o índice de `Options()`. Assim as estatísticas valem entre determinizações. Cartas iguais na mão são intercambiáveis.
+- **Seleção:** UCB com contagem de disponibilidade (SO-ISMCTS), com recompensa = Win% ∈ [0, 1] e C = 0,7. O ranking final usa o filho mais visitado (*robust child*).
+- **Iteração:** uma expansão por iteração. Depois dela, a política greedy de 1-ply termina o nosso turno e joga o turno do oponente, e a avaliação é aplicada no início do nosso turno seguinte.
+- **Determinização (`HiddenInformationDeterminizer`):** reembaralha o nosso deck e redistribui de forma uniforme as cartas ocultas do oponente (mão ∪ deck). Cartas geradas (`CREATOR`) e The Coin ficam onde estão. O RNG de cada mundo vem de uma seed (`CloneWithSeed`, por reflexão, porque `Game.Random` é `internal`).
+- **Ordenação por informação:** a classificação é por texto da carta (`draw|discover`). É suficiente para o pool Basic e deve virar metadado quando o pool crescer.
+- **Média do nó vs. valor da linha:** a Win% reportada é a média de todas as visitas, incluindo exploração. Uma linha de letal certa aparece como ~0,97, não 1,0.
+- **Custo:** o rollout greedy domina, com ~5 ms por iteração por thread (clona e avalia todas as opções a cada passo). É o próximo alvo de otimização: política de rollout mais barata ou avaliação incremental.
+
 ## Consequências
 
 - (+) Lida com informação oculta sem *strategy fusion* e com aleatoriedade intra-turno.
