@@ -1,6 +1,6 @@
 # ADR-0005 — Produto offline e ingestão passiva de `Power.log`
 
-- **Status:** accepted (2026-10-31)
+- **Status:** accepted (2026-10-31). O item 1 (produto offline primeiro) foi substituído pelo [ADR-0007](adr-0007-recomendador-ao-vivo-classic.md), que adota o modo ao vivo. Os itens 2 e 3 continuam valendo.
 - **Origem:** ARCH-0001 §3.5, decisão D5, pergunta 2 do PO
 
 ## Decisão

@@ -32,4 +32,28 @@
 
 Ganho de ~10–14x; o `LethalSolver` já usa o `StateHasher`.
 
+## Custo de uma iteração do ISMCTS (1 thread, Basic Mage espelho, turno ~8)
+
+| Componente | Média |
+|---|---:|
+| Determinização (`HiddenInformationDeterminizer`) | 9 µs |
+| Avaliação (`BoardEvaluator`) | 0,2 µs |
+| Um turno greedy (rollout) | 565 µs |
+| Iteração completa | 860 µs |
+
+O rollout greedy domina, porque clona e avalia cada opção a cada passo. Na arena, com 12 partidas em paralelo, uma decisão de 100 iterações custava ~650 ms com GC de workstation e **~320 ms com Server GC**.
+
+## Aceite do Slice 0 (ISMCTS × greedy, Basic Mage espelho)
+
+| Iterações/decisão | Partidas | Win rate | IC 95% (Wilson) | Assento 1 | Assento 2 | Status |
+|---|---:|---:|---|---:|---:|---|
+| 100 | 485 (parcial*) | 56,3% | [51,8%, 60,6%] | 81% | 32% | abaixo da meta de 60% |
+| 300 | 1000 | **57,4%** | [54,3%, 60,4%] | 85% | 30% | **abaixo da meta de 60%** |
+
+Dados brutos: [arena/2026-10-31-ismcts300-vs-greedy.csv](arena/2026-10-31-ismcts300-vs-greedy.csv). Média de 805 ms por decisão, 39 decisões por partida, 44,7 min de parede com 12 partidas em paralelo.
+
+**Leitura:** o ISMCTS é melhor que o greedy com significância (o IC fica inteiro acima de 50%), mas não chega aos 60%. Triplicar as iterações rendeu só ~1 ponto, então o limite está na **qualidade** da avaliação heurística e do rollout, e não na quantidade de busca. Próximas alavancas: calibrar os pesos da avaliação offline (ADR-0006) e modelar a resposta do oponente dentro da árvore, em vez de usar só a política greedy.
+
+\* A execução foi interrompida no fim da sessão. As partidas terminam fora de ordem (as curtas primeiro), então a amostra parcial pode ter algum viés. Essa rodada também foi anterior à correção de seeds (`Seeds.Derive`).
+
 > `--job short` tem poucas iterações: os números servem como ordem de grandeza, não como medida precisa.
