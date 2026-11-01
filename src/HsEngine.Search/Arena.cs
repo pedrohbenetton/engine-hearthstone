@@ -77,7 +77,7 @@ public sealed class Arena(SearchOptions search, int maxTurns = 60, int maxAction
 
     private PlayerTask Decide(Game game, int decision, long seed)
     {
-        SearchResult result = new Ismcts(_evaluator).Search(game, search with { Seed = HashCode.Combine(seed, decision) });
+        SearchResult result = new Ismcts(_evaluator).Search(game, search with { Seed = Seeds.Derive(seed, decision) });
         ActionKey best = result.Actions[0].Key;
         return game.CurrentPlayer.Options().FirstOrDefault(t => ActionKey.From(t) == best)
                ?? EndTurnTask.Any(game.CurrentPlayer);

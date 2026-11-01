@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\HsEngine.Simulation\HsEngine.Simulation.csproj" />
+    <ProjectReference Include="..\..\src\HsEngine.Search\HsEngine.Search.csproj" />
   </ItemGroup>
 
   <ItemGroup>

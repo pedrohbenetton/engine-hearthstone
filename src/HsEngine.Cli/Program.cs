@@ -2,11 +2,13 @@
 using System.Diagnostics;
 using HsEngine.Search;
 
-// Usage: HsEngine.Cli arena [--deals N] [--iterations K] [--time-ms T] [--seed S] [--parallel P]
+// Usage: HsEngine.Cli arena [--deals N] [--iterations K] [--time-ms T] [--seed S] [--parallel P] [--out results.csv]
 // Each deal is played twice, once from each seat, so seat advantage cancels out.
+// With --out every finished game is appended at once and games already in the file are skipped, so an
+// interrupted run resumes where it stopped.
 if (args.Length == 0 || args[0] != "arena")
 {
-    Console.Error.WriteLine("usage: HsEngine.Cli arena [--deals N] [--iterations K] [--time-ms T] [--seed S] [--parallel P]");
+    Console.Error.WriteLine("usage: HsEngine.Cli arena [--deals N] [--iterations K] [--time-ms T] [--seed S] [--parallel P] [--out results.csv]");
     return 1;
 }
 
@@ -21,17 +23,29 @@ var search = new SearchOptions
     Iterations = timeMs > 0 ? null : iterations,
     TimeLimit = timeMs > 0 ? TimeSpan.FromMilliseconds(timeMs) : null,
 };
+string? outPath = OptionText("--out");
 var arena = new Arena(search);
-var results = new ConcurrentBag<MatchResult>();
+var results = new ConcurrentBag<MatchResult>(outPath is not null && File.Exists(outPath) ? ReadResults(outPath) : []);
+var done = results.Select(r => (r.Seed, r.IsmctsPlayer)).ToHashSet();
+var writeLock = new object();
 var clock = Stopwatch.StartNew();
 
 Console.WriteLine($"ISMCTS vs greedy | Basic Mage mirror | {deals} deals x 2 seats | " +
-                  (timeMs > 0 ? $"{timeMs} ms" : $"{iterations} iterations") + $" per decision | {parallel} games in parallel");
+                  (timeMs > 0 ? $"{timeMs} ms" : $"{iterations} iterations") + $" per decision | {parallel} games in parallel" +
+                  (done.Count > 0 ? $" | resuming, {done.Count} games already in {outPath}" : ""));
 
 Parallel.For(0, deals * 2, new ParallelOptions { MaxDegreeOfParallelism = parallel }, i =>
 {
-    MatchResult r = arena.Play(seed + i / 2, ismctsPlayer: i % 2 + 1);
+    (long dealSeed, int seat) = (seed + i / 2, i % 2 + 1);
+    if (done.Contains((dealSeed, seat)))
+        return;
+
+    MatchResult r = arena.Play(dealSeed, seat);
     results.Add(r);
+    if (outPath is not null)
+        lock (writeLock)
+            File.AppendAllText(outPath,
+                $"{r.Seed},{r.IsmctsPlayer},{r.Outcome},{r.Turns},{r.Decisions},{r.Elapsed.TotalMilliseconds:F0}{Environment.NewLine}");
     Console.WriteLine($"  deal {r.Seed} seat {r.IsmctsPlayer}: {r.Outcome,-4} turns {r.Turns,2} decisions {r.Decisions,3} " +
                       $"{r.Elapsed.TotalSeconds,6:F1}s ({r.Elapsed.TotalMilliseconds / Math.Max(1, r.Decisions),5:F0} ms/decision)");
 });
@@ -46,8 +60,17 @@ foreach (int seat in new[] { 1, 2 })
 }
 return 0;
 
-int Option(string name, int fallback)
+int Option(string name, int fallback) => OptionText(name) is { } text ? int.Parse(text) : fallback;
+
+string? OptionText(string name)
 {
     int i = Array.IndexOf(args, name);
-    return i >= 0 && i + 1 < args.Length ? int.Parse(args[i + 1]) : fallback;
+    return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
 }
+
+static IEnumerable<MatchResult> ReadResults(string path) =>
+    File.ReadLines(path)
+        .Where(line => line.Length > 0)
+        .Select(line => line.Split(','))
+        .Select(f => new MatchResult(long.Parse(f[0]), int.Parse(f[1]), Enum.Parse<SabberStoneCore.Enums.PlayState>(f[2]),
+            int.Parse(f[3]), int.Parse(f[4]), TimeSpan.FromMilliseconds(double.Parse(f[5], System.Globalization.CultureInfo.InvariantCulture))));

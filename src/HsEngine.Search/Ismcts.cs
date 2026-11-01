@@ -63,7 +63,7 @@ public sealed class Ismcts(BoardEvaluator? evaluator = null, IDeterminizer? dete
 
         Parallel.For(0, options.Workers, new ParallelOptions { MaxDegreeOfParallelism = options.Workers }, w =>
         {
-            var rng = new Random(HashCode.Combine(options.Seed, w));
+            var rng = new Random(Seeds.Derive(options.Seed, w));
             var tree = new Node(null, null);
             int n = 0;
             while ((options.Iterations is not int max || n < max) &&
