@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\HsEngine.Core\HsEngine.Core.csproj" />
+    <ProjectReference Include="..\HsEngine.Ingestion\HsEngine.Ingestion.csproj" />
     <ProjectReference Include="..\..\external\SabberStone\SabberStoneCore\SabberStoneCore.csproj" />
   </ItemGroup>
 

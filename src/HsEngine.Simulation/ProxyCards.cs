@@ -17,6 +17,14 @@ public static class ProxyCards
 {
     private const string CorePrefix = "CORE_";
 
+    /// <summary>
+    /// Stand-in for a card whose identity the player does not know (opponent's hand, either deck). It costs more
+    /// than any mana pool, so it is never played: hidden cards stay inert until the range model (ADR-0006) samples them.
+    /// </summary>
+    public const string HiddenCardId = "HSE_HIDDEN";
+
+    private static readonly CardData HiddenCard = new(HiddenCardId, 0, "Hidden card", "SPELL", "HSE", Cost: 99);
+
     private static readonly Lock Gate = new();
     private static readonly HashSet<string> Proxies = [];
     private static bool _defaultRegistered;
@@ -68,7 +76,7 @@ public static class ProxyCards
         {
             if (_defaultRegistered)
                 return;
-            Register(CardSnapshot.Default);
+            Register(CardSnapshot.Default.Append(HiddenCard));
             _defaultRegistered = true;
         }
     }

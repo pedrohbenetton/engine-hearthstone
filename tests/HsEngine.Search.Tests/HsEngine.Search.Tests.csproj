@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\HsEngine.Search\HsEngine.Search.csproj" />
+    <None Include="..\HsEngine.Ingestion.Tests\Fixtures\standard-game1.log" Link="Fixtures\standard-game1.log" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
