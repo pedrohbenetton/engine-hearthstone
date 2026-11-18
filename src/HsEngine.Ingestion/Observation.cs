@@ -10,8 +10,17 @@ public sealed record ObservedMinion(
 
 public sealed record ObservedWeapon(string CardId, int Attack, int Durability, int Damage);
 
-/// <summary>A card in hand; <see cref="CardId"/> and <see cref="Cost"/> are null when the card is hidden.</summary>
-public sealed record ObservedHandCard(string? CardId, int? Cost);
+/// <summary>
+/// A card in hand; <see cref="CardId"/> and <see cref="Cost"/> are null when the card is hidden.
+/// Hand-slot history (<see cref="TurnEnteredHand"/>, <see cref="KeptInMulligan"/>, <see cref="IsCreated"/>) is visible
+/// on screen for both players and drives Bayesian hand-range narrowing (ADR-0006).
+/// </summary>
+public sealed record ObservedHandCard(
+    string? CardId,
+    int? Cost,
+    int TurnEnteredHand = 0,
+    bool KeptInMulligan = false,
+    bool IsCreated = false);
 
 public sealed record ObservedSide(
     int PlayerId,
@@ -24,15 +33,18 @@ public sealed record ObservedSide(
     IReadOnlyList<ObservedMinion> Board,
     IReadOnlyList<ObservedHandCard> Hand,
     int DeckCount,
-    int SecretCount);
+    int SecretCount,
+    IReadOnlyList<string>? KnownDeckCards = null,
+    IReadOnlyList<string>? SpentDeckCards = null);
 
 /// <summary>The game as the local player sees it: everything the recommender is allowed to use.</summary>
 public sealed record ObservedState(int Turn, int CurrentPlayerId, ObservedSide Me, ObservedSide Opponent);
 
 /// <summary>
 /// Hidden-information sanitizer (ADR-0005 item 3). Projects the tracked state onto what the local client shows:
-/// public zones in full, hand cards only when their identity is known, and nothing but counts for decks and
-/// secrets. Raw tags of hidden entities never cross this boundary.
+/// public zones in full, hand cards only when their identity is known, observable hand-slot history (turn drawn,
+/// mulligan keep, created-by status), and main-deck cards revealed in visible zones. Raw tags of hidden entities
+/// and any entity only seen in <c>DECK</c> or unrevealed <c>SECRET</c> never cross this boundary.
 /// </summary>
 public static class Observation
 {
@@ -52,17 +64,34 @@ public static class Observation
             .Select(e => e.Int("PLAYER_ID"))
             .FirstOrDefault();
 
-        return new ObservedState(state.Turn, current, Side(state, local), Side(state, opponent));
+        return new ObservedState(
+            state.Turn,
+            current,
+            Side(state, local, isLocal: true),
+            Side(state, opponent, isLocal: false));
     }
 
-    private static ObservedSide Side(GameStateMachine state, int playerId)
+    private static ObservedSide Side(GameStateMachine state, int playerId, bool isLocal)
     {
         PlayerState player = state.Player(playerId);
         string controller = playerId.ToString(CultureInfo.InvariantCulture);
-        List<TrackedEntity> inPlay = state.Entities.Values.Where(e => e["CONTROLLER"] == controller && e["ZONE"] == "PLAY").ToList();
+        List<TrackedEntity> owned = state.Entities.Values.Where(e => e["CONTROLLER"] == controller).ToList();
+        List<TrackedEntity> inPlay = owned.Where(e => e["ZONE"] == "PLAY").ToList();
         TrackedEntity? heroPower = inPlay.FirstOrDefault(e => e["CARDTYPE"] == "HERO_POWER");
         TrackedEntity? weapon = inPlay.FirstOrDefault(e => e["CARDTYPE"] == "WEAPON");
         TrackedEntity hero = player.Hero;
+
+        List<string> knownDeckCards = owned
+            .Where(e => IsMainDeckCard(e) && IsRevealedToLocal(e, isLocal))
+            .OrderBy(e => e.Id)
+            .Select(e => e.CardId)
+            .ToList();
+
+        List<string> spentDeckCards = owned
+            .Where(e => IsMainDeckCard(e) && e["ZONE"] != "DECK" && IsRevealedToLocal(e, isLocal))
+            .OrderBy(e => e.Id)
+            .Select(e => e.CardId)
+            .ToList();
 
         return new ObservedSide(
             playerId,
@@ -76,10 +105,30 @@ public static class Observation
             weapon is null ? null : new ObservedWeapon(weapon.CardId, weapon.Int("ATK"),
                 weapon.Int("DURABILITY") > 0 ? weapon.Int("DURABILITY") : weapon.Int("HEALTH"), weapon.Int("DAMAGE")),
             player.Board.Select(Minion).ToList(),
-            player.Hand.Select(c => c.CardId.Length == 0 ? new ObservedHandCard(null, null) : new ObservedHandCard(c.CardId, c.Int("COST"))).ToList(),
+            player.Hand.Select(HandCard).ToList(),
             player.DeckCount,
-            state.Entities.Values.Count(e => e["CONTROLLER"] == controller && e["ZONE"] == "SECRET"));
+            owned.Count(e => e["ZONE"] == "SECRET"),
+            knownDeckCards,
+            spentDeckCards);
     }
+
+    private static ObservedHandCard HandCard(TrackedEntity c) => new(
+        c.CardId.Length == 0 ? null : c.CardId,
+        c.CardId.Length == 0 ? null : c.Int("COST"),
+        c.TurnEnteredHand,
+        c.KeptInMulligan,
+        !IsMainDeckCard(c));
+
+    private static bool IsMainDeckCard(TrackedEntity e) =>
+        e.WasInDeck && e.Int("CREATOR") == 0 && e.Int("DISPLAYED_CREATOR") == 0;
+
+    private static bool IsRevealedToLocal(TrackedEntity e, bool isLocal) =>
+        e.CardId.Length > 0
+        && (e.VisitedZones.Contains("PLAY")
+            || e.VisitedZones.Contains("GRAVEYARD")
+            || e.VisitedZones.Contains("REMOVEDFROMGAME")
+            || (isLocal && e.VisitedZones.Contains("HAND"))
+            || (!isLocal && e["ZONE"] == "HAND"));
 
     private static ObservedMinion Minion(TrackedEntity m) => new(
         m.CardId, m.Int("ATK"), m.Int("HEALTH"), m.Int("DAMAGE"),

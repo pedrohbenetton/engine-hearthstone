@@ -44,6 +44,44 @@ public static class TurnPlanner
         return new TurnPlan(best.WinProbability, steps);
     }
 
+    public static (TurnPlan Plan, RankedAction Action) FromOptionPath(Game root, IReadOnlyList<int> optionPath)
+    {
+        Game game = root.DeterministicClone();
+        var steps = new List<PlanStep>();
+        var keys = new List<ActionKey>();
+        var descriptions = new List<string>();
+        string? firstCardName = null;
+
+        foreach (int index in optionPath)
+        {
+            List<PlayerTask> options = game.CurrentPlayer.Options();
+            if ((uint)index >= (uint)options.Count)
+                break;
+            PlayerTask task = options[index];
+            ActionKey key = ActionKey.From(task);
+            firstCardName ??= task.Source?.Card.Name;
+            keys.Add(key);
+            descriptions.Add(task.ToString() ?? "");
+            steps.Add(Step(game, task, key));
+            if (!game.Process(task))
+                break;
+        }
+
+        ActionKey rootKey = keys.Count > 0 ? keys[0] : new ActionKey(PlayerTaskType.END_TURN, 0, -1, -1, -1, 0);
+        var ranked = new RankedAction(
+            rootKey,
+            descriptions.FirstOrDefault() ?? "Lethal",
+            firstCardName,
+            Visits: 1,
+            WinProbability: 1.0,
+            StdDev: 0.0,
+            ConfidenceInterval95: 0.0,
+            descriptions.Skip(1).ToList(),
+            keys.Skip(1).ToList());
+
+        return (new TurnPlan(1.0, steps), ranked);
+    }
+
     private static PlayerTask? SelectTask(List<PlayerTask> options, ActionKey key) =>
         key.Placement >= 0
             ? options.FirstOrDefault(t => ActionKey.From(t, preservePlacement: true) == key)

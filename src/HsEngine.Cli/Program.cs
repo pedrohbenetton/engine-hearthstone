@@ -5,7 +5,7 @@ using HsEngine.Search;
 const string Usage =
     """
     usage:
-      HsEngine.Cli live  [--logs DIR] [--time-ms T] [--workers W] [--top N]
+      HsEngine.Cli live  [--logs DIR] [--deck CODE] [--time-ms T] [--workers W] [--top N]
       HsEngine.Cli arena [--deals N] [--iterations K] [--time-ms T] [--seed S] [--parallel P] [--out results.csv]
     """;
 
@@ -44,7 +44,7 @@ int RunLive()
         stop.Cancel();
     };
 
-    var session = new LiveSession(logs, options);
+    var session = new LiveSession(logs, options, OptionText("--deck"));
     session.Status += message => Console.WriteLine($"{message} (Ctrl+C para sair)");
     session.Recommended += recommendation => Console.WriteLine(RecommendationFormatter.Format(recommendation, top));
     session.Failed += ex => Console.Error.WriteLine($"Não foi possível recomendar esta posição: {ex.Message}");

@@ -112,4 +112,15 @@ public class ProxyCardsTests
 
         Assert.All(seen, id => Assert.Equal(id, Cards.FromId(id).Id));
     }
+
+    [Fact]
+    public void Core_choose_one_reprint_aliases_its_sub_options_and_plays_cleanly()
+    {
+        // CORE_AT_037 (Living Roots) requires CORE_AT_037a and CORE_AT_037b when instantiated in hand.
+        Game game = new ScenarioBuilder().WithMana(1).WithHand("CORE_AT_037").WithOpponentHero(20).Build();
+
+        List<PlayerTask> options = game.CurrentPlayer.Options().Where(o => o is PlayCardTask).ToList();
+        Assert.NotEmpty(options);
+        Assert.True(game.Process(options[0]));
+    }
 }

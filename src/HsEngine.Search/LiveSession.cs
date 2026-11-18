@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using HsEngine.Ingestion;
+using HsEngine.Simulation;
 
 namespace HsEngine.Search;
 
@@ -8,7 +9,7 @@ namespace HsEngine.Search;
 /// the logs folder, follows it, and raises a recommendation at every decision point of the local player. It moves to
 /// a newer session folder when the game restarts. Passive read only (ADR-0005).
 /// </summary>
-public sealed class LiveSession(string logsDirectory, SearchOptions options)
+public sealed class LiveSession(string logsDirectory, SearchOptions options, string? explicitDeckString = null)
 {
     private static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan SessionCheck = TimeSpan.FromSeconds(5);
@@ -39,7 +40,7 @@ public sealed class LiveSession(string logsDirectory, SearchOptions options)
     {
         Status?.Invoke($"Seguindo {path}");
         using var tail = new LogTail(path);
-        var live = new LiveRecommender(options);
+        var live = new LiveRecommender(options, candidateDecks: LoadCandidateDecks());
         var sessionCheck = Stopwatch.StartNew();
         bool localTurn = false;
 
@@ -81,5 +82,15 @@ public sealed class LiveSession(string logsDirectory, SearchOptions options)
             }
             stop.WaitHandle.WaitOne(Poll);
         }
+    }
+
+    private List<DeckDefinition> LoadCandidateDecks()
+    {
+        var decks = new List<DeckDefinition>();
+        if (!string.IsNullOrWhiteSpace(explicitDeckString) && DeckStringCodec.TryDecode(explicitDeckString, "Deck informado") is { } explicitDeck)
+            decks.Add(explicitDeck with { LastEdited = DateTimeOffset.MaxValue });
+        decks.AddRange(LocalDeckSources.ReadDecksLog(logsDirectory));
+        decks.AddRange(LocalDeckSources.ReadHdtPlayerDecks());
+        return decks;
     }
 }

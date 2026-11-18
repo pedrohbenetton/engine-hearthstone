@@ -4,7 +4,7 @@ using HsEngine.Search;
 
 namespace HsEngine.Overlay;
 
-// Usage: HsEngine.Overlay [--logs DIR] [--time-ms T] [--workers W] [--always-visible]
+// Usage: HsEngine.Overlay [--logs DIR] [--deck CODE] [--time-ms T] [--workers W] [--always-visible]
 // Shows the live recommendation over the game window (ADR-0009). Ctrl+C in this console closes it.
 internal static class Program
 {
@@ -32,7 +32,7 @@ internal static class Program
             app.Dispatcher.BeginInvoke(() => app.Shutdown());
         };
 
-        var session = new LiveSession(logs, options);
+        var session = new LiveSession(logs, options, Option(args, "--deck"));
         session.Status += Console.WriteLine;
         session.Failed += ex => Console.Error.WriteLine($"Não foi possível recomendar esta posição: {ex.Message}");
         session.LocalTurnChanged += localTurn =>

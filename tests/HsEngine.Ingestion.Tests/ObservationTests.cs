@@ -97,4 +97,20 @@ public class ObservationTests
     {
         Assert.Throws<InvalidOperationException>(() => Observation.From(new GameStateMachine()));
     }
+
+    [Fact]
+    public void Tracks_mulligan_keeps_created_cards_and_spent_vs_known_deck_cards()
+    {
+        // At turn 1 main action in standard-game1.log:
+        // - Local player mulliganed CATA_479 back into DECK, so it is in KnownDeckCards but NOT in SpentDeckCards.
+        // - Opponent kept 2 opening cards in mulligan, replaced 2, and received The Coin (IsCreated = true).
+        ObservedState turn1 = Observation.From(AtMainAction(1));
+
+        Assert.Contains("CATA_479", turn1.Me.KnownDeckCards!);
+        Assert.DoesNotContain("CATA_479", turn1.Me.SpentDeckCards!);
+
+        Assert.Equal(2, turn1.Opponent.Hand.Count(c => c.KeptInMulligan));
+        Assert.Contains(turn1.Opponent.Hand, c => c.IsCreated && !c.KeptInMulligan);
+        Assert.Empty(turn1.Opponent.KnownDeckCards!);
+    }
 }

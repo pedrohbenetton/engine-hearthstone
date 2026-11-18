@@ -6,10 +6,15 @@ namespace HsEngine.Ingestion;
 public sealed class TrackedEntity(int id)
 {
     private readonly Dictionary<string, string> _tags = [];
+    private readonly HashSet<string> _visitedZones = [];
 
     public int Id { get; } = id;
     public string CardId { get; internal set; } = "";
     public IReadOnlyDictionary<string, string> Tags => _tags;
+    public IReadOnlySet<string> VisitedZones => _visitedZones;
+    public bool WasInDeck => _visitedZones.Contains("DECK");
+    public int TurnEnteredHand { get; internal set; }
+    public bool KeptInMulligan { get; internal set; }
 
     public string? this[string tag] => _tags.GetValueOrDefault(tag);
 
@@ -17,12 +22,33 @@ public sealed class TrackedEntity(int id)
     public int Int(string tag) =>
         _tags.TryGetValue(tag, out string? value) && int.TryParse(value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int n) ? n : 0;
 
-    internal void Set(string tag, string value) => _tags[tag] = value;
+    internal void Set(string tag, string value, int currentTurn, bool beforeMulliganChoices)
+    {
+        string? previousZone = tag == "ZONE" ? this["ZONE"] : null;
+        _tags[tag] = value;
+        if (tag == "ZONE" && value.Length > 0)
+            OnZoneChanged(previousZone, value, currentTurn, beforeMulliganChoices);
+    }
 
-    internal void Merge(IReadOnlyDictionary<string, string> tags)
+    internal void Merge(IReadOnlyDictionary<string, string> tags, int currentTurn, bool beforeMulliganChoices)
     {
         foreach ((string tag, string value) in tags)
-            _tags[tag] = value;
+            Set(tag, value, currentTurn, beforeMulliganChoices);
+    }
+
+    private void OnZoneChanged(string? previousZone, string nextZone, int currentTurn, bool beforeMulliganChoices)
+    {
+        _visitedZones.Add(nextZone);
+        if (nextZone == "HAND" && previousZone != "HAND")
+        {
+            TurnEnteredHand = currentTurn;
+            if (beforeMulliganChoices && WasInDeck)
+                KeptInMulligan = true;
+        }
+        else if (previousZone == "HAND" && nextZone != "HAND")
+        {
+            KeptInMulligan = false;
+        }
     }
 }
 
@@ -53,6 +79,7 @@ public sealed class GameStateMachine
     private readonly Dictionary<int, string> _playerNames = [];
     private readonly Dictionary<string, string> _info = [];
     private int? _gameEntityId;
+    private bool _mulliganStarted;
 
     public IReadOnlyDictionary<int, TrackedEntity> Entities => _entities;
     public IReadOnlyDictionary<string, string> Info => _info;
@@ -67,6 +94,7 @@ public sealed class GameStateMachine
 
     public void Apply(PowerEvent e)
     {
+        bool beforeMulligan = !_mulliganStarted;
         switch (e)
         {
             case CreateGame:
@@ -74,30 +102,33 @@ public sealed class GameStateMachine
                 break;
             case GameEntityCreated g:
                 _gameEntityId = g.Id;
-                Create(g.Id).Merge(g.Tags);
+                Create(g.Id).Merge(g.Tags, Turn, beforeMulligan);
+                UpdateMulliganPhase();
                 break;
             case PlayerCreated p:
                 _playerEntities[p.PlayerId] = p.EntityId;
-                Create(p.EntityId).Merge(p.Tags);
+                Create(p.EntityId).Merge(p.Tags, Turn, beforeMulligan);
                 break;
             case FullEntity f:
                 TrackedEntity created = Create(f.Id);
                 created.CardId = f.CardId;
-                created.Merge(f.Tags);
+                created.Merge(f.Tags, Turn, beforeMulligan);
                 break;
             case ShowEntity s when Resolve(s.Entity) is { } shown:
                 shown.CardId = s.CardId;
-                shown.Merge(s.Tags);
+                shown.Merge(s.Tags, Turn, beforeMulligan);
                 break;
             case ChangeEntity c when Resolve(c.Entity) is { } changed:
                 changed.CardId = c.CardId;
-                changed.Merge(c.Tags);
+                changed.Merge(c.Tags, Turn, beforeMulligan);
                 break;
             case HideEntity h when Resolve(h.Entity) is { } hidden:
-                hidden.Merge(h.Tags);
+                hidden.Merge(h.Tags, Turn, beforeMulligan);
                 break;
             case TagChange t when Resolve(t.Entity) is { } target:
-                target.Set(t.Tag, t.Value);
+                target.Set(t.Tag, t.Value, Turn, beforeMulligan);
+                if (t.Tag is "STEP" or "MULLIGAN_STATE")
+                    UpdateMulliganPhase();
                 break;
             case PlayerName n:
                 OnPlayerName(n);
@@ -174,6 +205,12 @@ public sealed class GameStateMachine
         return entity;
     }
 
+    private void UpdateMulliganPhase()
+    {
+        if (_gameEntityId is int id && _entities[id]["STEP"] is { Length: > 0 } step)
+            _mulliganStarted |= step is "BEGIN_MULLIGAN" or "MAIN_READY" or "MAIN_START" or "MAIN_ACTION";
+    }
+
     private void Reset()
     {
         _entities.Clear();
@@ -181,6 +218,7 @@ public sealed class GameStateMachine
         _playerNames.Clear();
         _info.Clear();
         _gameEntityId = null;
+        _mulliganStarted = false;
         LocalPlayerId = null;
         UnresolvedReferences = 0;
     }

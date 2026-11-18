@@ -115,17 +115,40 @@ public static class ProxyCards
 
     private static Card? Alias(CardData data, Dictionary<string, Card> known)
     {
-        if (!data.Id.StartsWith(CorePrefix, StringComparison.Ordinal)
-            || !known.TryGetValue(data.Id[CorePrefix.Length..], out Card? original)
+        string originalId = data.Id.StartsWith(CorePrefix, StringComparison.Ordinal) ? data.Id[CorePrefix.Length..] : "";
+        if (originalId.Length == 0
+            || !known.TryGetValue(originalId, out Card? original)
             || original.Cost != (data.Cost ?? 0)
             || original.ATK != (data.Attack ?? 0)
             || original.Health != (data.Health ?? data.Durability ?? 0))
             return null;
 
+        // SabberStone instantiates ChooseOne options by looking up Id + "a" and Id + "b" in Cards.
+        if (original.ChooseOne)
+        {
+            if (originalId == "TRL_343"
+                || !known.TryGetValue(originalId + "a", out Card? optA)
+                || !known.TryGetValue(originalId + "b", out Card? optB))
+                return null;
+
+            RegisterSubOptionAlias(known, optA, data.Id + "a", data.DbfId * 10 + 1);
+            RegisterSubOptionAlias(known, optB, data.Id + "b", data.DbfId * 10 + 2);
+        }
+
         Card alias = original.Clone();
         Set(alias, nameof(Card.Id), data.Id);
         Set(alias, nameof(Card.AssetId), data.DbfId);
         return alias;
+    }
+
+    private static void RegisterSubOptionAlias(Dictionary<string, Card> known, Card originalSub, string aliasId, int fallbackAssetId)
+    {
+        if (known.ContainsKey(aliasId))
+            return;
+        Card subAlias = originalSub.Clone();
+        Set(subAlias, nameof(Card.Id), aliasId);
+        Set(subAlias, nameof(Card.AssetId), fallbackAssetId);
+        known[aliasId] = subAlias;
     }
 
     private static Card Proxy(CardData data, CardType type)

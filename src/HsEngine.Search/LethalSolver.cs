@@ -10,17 +10,19 @@ namespace HsEngine.Search;
 /// <param name="Line">Human-readable description of each step.</param>
 /// <param name="NodesExpanded">Search nodes visited.</param>
 /// <param name="Exhausted">True when the node budget ran out before the search space was covered.</param>
+/// <param name="IsDeterministic">True when the lethal line kills without relying on RNG rolls.</param>
 public sealed record LethalResult(
     bool IsLethal,
     IReadOnlyList<int> OptionPath,
     IReadOnlyList<string> Line,
     int NodesExpanded,
-    bool Exhausted);
+    bool Exhausted,
+    bool IsDeterministic = false);
 
 /// <summary>
 /// Exact single-turn lethal search (ADR-0004): depth-first over the current player's actions,
 /// excluding end turn, with a transposition table keyed by <see cref="StateHasher"/>.
-/// Assumes deterministic effects; random outcomes follow the game's fixed seed.
+/// Assumes deterministic effects; random outcomes follow the game's fixed seed and set <see cref="LethalResult.IsDeterministic"/> to false.
 /// </summary>
 public sealed class LethalSolver(int maxNodes = 200_000)
 {
@@ -28,13 +30,37 @@ public sealed class LethalSolver(int maxNodes = 200_000)
     {
         var search = new Search(maxNodes);
         bool found = search.Visit(game.DeterministicClone());
+        int[] path = found ? search.Path.ToArray() : [];
+        bool deterministic = found && IsDeterministicLine(game, path);
 
         return new LethalResult(
             found,
-            found ? search.Path.ToArray() : [],
+            path,
             found ? search.Line.ToArray() : [],
             search.Nodes,
-            search.Exhausted);
+            search.Exhausted,
+            deterministic);
+    }
+
+    private static bool IsDeterministicLine(Game root, int[] path)
+    {
+        foreach (long seed in (ReadOnlySpan<long>)[17L, 999_983L])
+        {
+            Game copy = root.CloneWithSeed(seed);
+            bool randomFired = false;
+            copy.RandomHappenedEvent += (_, _) => randomFired = true;
+
+            foreach (int optionIndex in path)
+            {
+                List<PlayerTask> opts = copy.CurrentPlayer.Options();
+                if ((uint)optionIndex >= (uint)opts.Count || !copy.Process(opts[optionIndex]))
+                    return false;
+            }
+
+            if (randomFired || !copy.OpponentDefeated())
+                return false;
+        }
+        return true;
     }
 
     private sealed class Search(int maxNodes)
