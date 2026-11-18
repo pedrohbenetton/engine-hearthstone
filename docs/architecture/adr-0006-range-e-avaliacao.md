@@ -17,11 +17,12 @@
 
 **Hardware de referência:** desktop x64 moderno com 8 a 16 threads, sem GPU (CPU-bound).
 
-## Implementação (2026-11-17)
+## Implementação (2026-11-17 / 2026-11-18)
 
-- **Histórico observável sem vazamento (`Observation`):** rastreia por slot de mão `TurnEnteredHand`, `KeptInMulligan` (cartas mantidas antes de `BEGIN_MULLIGAN`) e `IsCreated`, além de separar `KnownDeckCards` (cartas do deck já vistas para inferência de lista/arquétipo) de `SpentDeckCards` (cartas já fora do `DECK` para subtração exata do restante do baralho).
+- **Histórico observável sem vazamento (`Observation`):** rastreia por slot de mão `TurnEnteredHand`, `KeptInMulligan` (cartas mantidas antes de `BEGIN_MULLIGAN`) e `IsCreated`, preserva segredos próprios ativos para simulação de gatilhos enquanto mascara segredos não revelados do oponente (`null`), propaga o contador de `FATIGUE`, e separa `KnownDeckCards` (cartas do deck já vistas para inferência de lista/arquétipo) de `SpentDeckCards` (cartas já fora do `DECK` para subtração exata do restante do baralho).
 - **Fontes de deck local (`DeckLibrary`):** codec Base64 varint de deckstrings oficiais (`DeckStringCodec`), leitura de `Decks.log` e de `PlayerDecks.xml` do HDT, com casamento automático da lista ativa (`DeckMatcher`).
 - **Range bayesiano (`BayesianRangeEstimator` + `RangeDeterminizer`):** calcula `P(arquétipo | classe, KnownDeckCards)` em espaço logarítmico com suavização de Laplace e pondera cada slot oculto da mão do oponente por retenção de mulligan e idade da carta na mão.
+- **Avaliação e calibração logística (`BoardEvaluator` + `analysis/calibration.py`):** avaliador estritamente antissimétrico cobrindo vida efetiva côncava (`√(HP + armadura)`), atributos de lacaios, Provocar, Escudo Divino, Fúria dos Ventos, Furtividade, Roubo de Vida, Veneno, Reborn, Poder Mágico, penalidade de Congelamento, armas, cartas na mão, segredos ativos, penalidade de fadiga e ameaça de letal. O pipeline offline em Python ajusta Platt scaling antissimétrico (`Win% = σ(scale · score)`) via Newton-Raphson/IRLS, valida `ECE < 5 p.p.` e gera `data/weights/calibrated.json` consumido automaticamente por `EvaluationWeights`.
 
 ## Consequências
 

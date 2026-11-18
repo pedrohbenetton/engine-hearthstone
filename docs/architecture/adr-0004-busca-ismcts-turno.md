@@ -11,15 +11,16 @@
 4. Efeitos aleatórios viram nós de chance amostrados, não expandidos.
 5. Paralelismo por *root parallelization*: cada thread usa suas próprias determinizações.
 
-## Implementação (2026-10-31)
+## Implementação (2026-10-31, evoluída em 2026-11-18)
 
-- **Identidade de ação (`ActionKey`) e deduplicação posicional (`BoardPlacement`):** a chave é semântica (tipo, carta de origem, posição no board, alvo codificado, posicionamento, escolha), não o índice de `Options()`. Assim as estatísticas valem entre determinizações. Cartas iguais na mão são intercambiáveis. Para lacaios jogados da mão, o slot `ZonePosition` só entra na chave (e na busca/rollout/plano) quando há ao menos uma carta posicional observável em jogo ou na nossa mão (`ADJACENT_BUFF`, `MODULAR`/Magnético ou texto posicional como *adjacent*, *next to*, *left/right-most*); caso contrário usa-se apenas o slot canônico à direita (`BoardZone.Count`, `Placement = -1`), concentrando visitas e eliminando linhas duplicadas por posição.
-- **Seleção:** UCB com contagem de disponibilidade (SO-ISMCTS), com recompensa = Win% ∈ [0, 1] e C = 0,7. O ranking final usa o filho mais visitado (*robust child*).
-- **Iteração:** uma expansão por iteração. Depois dela, a política greedy de 1-ply termina o nosso turno e joga o turno do oponente, e a avaliação é aplicada no início do nosso turno seguinte.
-- **Determinização (`HiddenInformationDeterminizer`):** reembaralha o nosso deck e redistribui de forma uniforme as cartas ocultas do oponente (mão ∪ deck). Cartas geradas (`CREATOR`) e The Coin ficam onde estão. O RNG de cada mundo vem de uma seed (`CloneWithSeed`, por reflexão, porque `Game.Random` é `internal`).
-- **Ordenação por informação:** a classificação é por texto da carta (`draw|discover`). É suficiente para o pool Basic e deve virar metadado quando o pool crescer.
-- **Média do nó vs. valor da linha:** a Win% reportada é a média de todas as visitas, incluindo exploração. Uma linha de letal certa aparece como ~0,97, não 1,0.
-- **Custo:** o rollout greedy domina, com ~5 ms por iteração por thread (clona e avalia todas as opções a cada passo). É o próximo alvo de otimização: política de rollout mais barata ou avaliação incremental.
+- **Identidade de ação (`ActionKey`), deduplicação posicional e quebra de simetria (`BoardPlacement`):** a chave é semântica (tipo, carta de origem, posição no board, alvo codificado, posicionamento, escolha), não o índice de `Options()`. Assim as estatísticas valem entre determinizações. Cartas iguais na mão são intercambiáveis.
+  - Para lacaios jogados da mão, `ZonePosition` só entra na chave quando há ao menos uma carta posicional observável em jogo ou na nossa mão (`ADJACENT_BUFF`, `MODULAR`/Magnético ou texto posicional como *adjacent*, *next to*, *left/right-most*); caso contrário usa-se apenas o slot canônico à direita (`BoardZone.Count`, `Placement = -1`).
+  - Lacaios gêmeos indistinguíveis atacam da esquerda para a direita (colapsando `k!` permutações em 1) e alvos gêmeos colapsam no mais à esquerda.
+  - Opções estritamente dominadas (`IsDominatedOption`) — dano puro no próprio herói ou em lacaio aliado sem Último Suspiro/gatilho de dano, e buffs positivos puros em lacaios inimigos — são podadas da árvore.
+- **Lethal Solver determinístico + probabilidade estocástica de letal:** `LethalSolver` valida determinismo em múltiplas seeds (`RandomHappenedEvent` e ausência de compras incertas do deck) antes de curto-circuitar a busca. Quando o letal depende de RNG ou topdeck (ex.: *Mísseis Arcanos* ou compras), `Ismcts` contabiliza a taxa empírica de vitórias intra-turno (`LethalProbability`) e a expõe no painel e no terminal.
+- **Seleção com RAVE/AMAF e backup robusto de Coulom:** UCB com contagem de disponibilidade (SO-ISMCTS, `C = 0,25` calibrado para recompensas densas em `[0, 1]`), combinado com RAVE/AMAF no escopo do turno (`β = k / (k + N)`, `k = 20`) para compartilhar valor entre ações comutativas com poucas visitas, e backup misto robusto de Coulom (`MaxBackupWeight = 0,5` sobre o filho mais visitado com `≥ 4` visitas) para evitar que jogadas de preparação (como *A Moeda*) sejam penalizadas por explorações subótimas.
+- **Expansão em 3 níveis:** (1) ações geradoras de informação (`InformationActions`: compra, *discover*, geração aleatória na mão e trocas letais de Último Suspiro de compra), (2) ações ativas do turno, (3) `END_TURN`.
+- **Determinização:** `HiddenInformationDeterminizer` em jogos de lista conhecida (Arena/Slice 0) e `RangeDeterminizer` bayesiano em partidas reais (ADR-0006).
 
 ## Consequências
 

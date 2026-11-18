@@ -14,4 +14,6 @@
 | [ADR-0009](adr-0009-overlay-no-jogo.md) | Overlay da recomendação dentro do jogo | accepted |
 
 Revisão: [0001-review-request.md](0001-review-request.md)
-Benchmarks: [2026-10-31 clone baseline](../benchmarks/2026-10-31-clone-baseline.md)
+Benchmarks:
+- [2026-10-31 clone baseline](../benchmarks/2026-10-31-clone-baseline.md)
+- [2026-11-18 aceite SO-ISMCTS + RAVE e calibração Platt/ECE](../benchmarks/2026-11-18-arena-e-calibracao.md)
