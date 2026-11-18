@@ -4,22 +4,24 @@ using SabberStoneCore.Model;
 
 namespace HsEngine.Simulation;
 
-public readonly record struct ProxyRegistration(int Proxied, int Aliased, int Skipped);
+public readonly record struct ProxyRegistration(int Proxied, int Aliased, int Skipped, int Compiled = 0);
 
 /// <summary>
-/// ADR-0008: makes current cards that SabberStone (2021) does not know usable by the simulator.
-/// A Core reprint whose cost and stats match the implemented original is an alias that shares its behaviour;
-/// any other unknown minion, spell or weapon becomes a proxy with cost, stats and keywords but no text effect.
-/// SabberStone's card database is internal, so registration goes through reflection (as GameExtensions does
-/// for Game.Random). Registration mutates a process-wide table: do it before games run in parallel.
+/// ADR-0008: makes current cards that SabberStone (2021) does not know usable by the simulator:
+/// <list type="number">
+/// <item>Reprints whose normalized effect text matches an implemented SabberStone card reuse its <see cref="Card.Power"/>
+/// (even when Blizzard rebalanced mana cost or stats in Core).</item>
+/// <item>New Standard spells, battlecries and deathrattles whose text matches exact templates are compiled by
+/// <see cref="CardEffectCompiler"/>.</item>
+/// <item>Remaining unknown minions, spells and weapons become stat/keyword proxies with <c>IsProxy == true</c>.</item>
+/// </list>
 /// </summary>
 public static class ProxyCards
 {
     private const string CorePrefix = "CORE_";
 
     /// <summary>
-    /// Stand-in for a card whose identity the player does not know (opponent's hand, either deck). It costs more
-    /// than any mana pool, so it is never played: hidden cards stay inert until the range model (ADR-0006) samples them.
+    /// Stand-in for a card whose identity the player does not know (opponent's hand, either deck) before range sampling.
     /// </summary>
     public const string HiddenCardId = "HSE_HIDDEN";
 
@@ -86,7 +88,9 @@ public static class ProxyCards
         lock (Gate)
         {
             Dictionary<string, Card> known = KnownCards();
-            int proxied = 0, aliased = 0, skipped = 0;
+            Dictionary<(string Name, CardType Type, string Text), Card> signatureMap = BuildSignatureIndex(known);
+            int proxied = 0, aliased = 0, skipped = 0, compiledCount = 0;
+
             foreach (CardData data in snapshot)
             {
                 if (known.ContainsKey(data.Id))
@@ -97,30 +101,83 @@ public static class ProxyCards
                     continue;
                 }
 
-                if (Alias(data, known) is { } alias)
+                if (Alias(data, type, known, signatureMap) is { } alias)
                 {
                     known[data.Id] = alias;
                     aliased++;
                 }
                 else
                 {
-                    known[data.Id] = Proxy(data, type);
-                    Proxies.Add(data.Id);
-                    proxied++;
+                    CompiledCardEffect? effect = data.Id == HiddenCardId ? null : CardEffectCompiler.TryCompile(data, type);
+                    Card built = BuildCard(data, type, effect);
+                    known[data.Id] = built;
+                    if (effect?.Power is not null)
+                    {
+                        compiledCount++;
+                    }
+                    else
+                    {
+                        Proxies.Add(data.Id);
+                        proxied++;
+                    }
                 }
             }
-            return new ProxyRegistration(proxied, aliased, skipped);
+            return new ProxyRegistration(proxied, aliased, skipped, compiledCount);
         }
     }
 
-    private static Card? Alias(CardData data, Dictionary<string, Card> known)
+    private static Dictionary<(string Name, CardType Type, string Text), Card> BuildSignatureIndex(Dictionary<string, Card> known)
     {
-        string originalId = data.Id.StartsWith(CorePrefix, StringComparison.Ordinal) ? data.Id[CorePrefix.Length..] : "";
-        if (originalId.Length == 0
-            || !known.TryGetValue(originalId, out Card? original)
-            || original.Cost != (data.Cost ?? 0)
-            || original.ATK != (data.Attack ?? 0)
-            || original.Health != (data.Health ?? data.Durability ?? 0))
+        var map = new Dictionary<(string, CardType, string), Card>();
+        foreach (Card card in known.Values)
+        {
+            if (!card.Implemented || card.Power is null || string.IsNullOrWhiteSpace(card.Name))
+                continue;
+            string norm = CardEffectCompiler.NormalizeForAlias(card.Text);
+            if (norm.Length > 0)
+                map.TryAdd((card.Name, card.Type, norm), card);
+        }
+        return map;
+    }
+
+    private static Card? Alias(
+        CardData data,
+        CardType type,
+        Dictionary<string, Card> known,
+        Dictionary<(string Name, CardType Type, string Text), Card> signatureMap)
+    {
+        Card? original = null;
+        string originalId = "";
+
+        if (data.Id.StartsWith(CorePrefix, StringComparison.Ordinal))
+        {
+            string candidateId = data.Id[CorePrefix.Length..];
+            if (known.TryGetValue(candidateId, out Card? coreOrig))
+            {
+                bool sameStats = coreOrig.Cost == (data.Cost ?? 0)
+                                 && coreOrig.ATK == (data.Attack ?? 0)
+                                 && coreOrig.Health == (data.Health ?? data.Durability ?? 0);
+                bool sameEffectText = coreOrig.Implemented
+                                      && CardEffectCompiler.NormalizeForAlias(coreOrig.Text) == CardEffectCompiler.NormalizeForAlias(data.Text);
+                if (sameStats || sameEffectText)
+                {
+                    original = coreOrig;
+                    originalId = candidateId;
+                }
+            }
+        }
+
+        if (original is null && data.Collectible)
+        {
+            string norm = CardEffectCompiler.NormalizeForAlias(data.Text);
+            if (norm.Length > 0 && signatureMap.TryGetValue((data.Name, type, norm), out Card? sigOrig))
+            {
+                original = sigOrig;
+                originalId = sigOrig.Id;
+            }
+        }
+
+        if (original is null)
             return null;
 
         // SabberStone instantiates ChooseOne options by looking up Id + "a" and Id + "b" in Cards.
@@ -138,6 +195,26 @@ public static class ProxyCards
         Card alias = original.Clone();
         Set(alias, nameof(Card.Id), data.Id);
         Set(alias, nameof(Card.AssetId), data.DbfId);
+
+        int newCost = data.Cost ?? 0;
+        alias.Tags[GameTag.COST] = newCost;
+        Set(alias, nameof(Card.Cost), newCost);
+
+        if (data.Attack is int newAtk)
+        {
+            alias.Tags[GameTag.ATK] = newAtk;
+            Set(alias, nameof(Card.ATK), newAtk);
+        }
+
+        int? newHealthOrDur = type == CardType.WEAPON
+            ? (data.Durability is > 0 ? data.Durability : data.Health)
+            : data.Health;
+        if (newHealthOrDur is int hp)
+        {
+            alias.Tags[type == CardType.WEAPON ? GameTag.DURABILITY : GameTag.HEALTH] = hp;
+            Set(alias, nameof(Card.Health), hp);
+        }
+
         return alias;
     }
 
@@ -151,7 +228,7 @@ public static class ProxyCards
         known[aliasId] = subAlias;
     }
 
-    private static Card Proxy(CardData data, CardType type)
+    private static Card BuildCard(CardData data, CardType type, CompiledCardEffect? compiled)
     {
         var tags = new List<Tag>
         {
@@ -161,6 +238,8 @@ public static class ProxyCards
             new(GameTag.CARDTEXT, data.Text ?? ""),
             new(GameTag.CLASS, Classes.GetValueOrDefault(data.CardClass ?? "", Classes["NEUTRAL"])),
         };
+        if (data.Collectible)
+            tags.Add(new Tag(GameTag.COLLECTIBLE, 1));
         if (data.Attack is int attack)
             tags.Add(new Tag(GameTag.ATK, attack));
         // Current HearthstoneJSON puts weapon durability in "health" and leaves "durability" at 0.
@@ -168,11 +247,29 @@ public static class ProxyCards
             tags.Add(new Tag(GameTag.DURABILITY, data.Durability is > 0 ? data.Durability.Value : data.Health ?? 0));
         else if (data.Health is int health)
             tags.Add(new Tag(GameTag.HEALTH, health));
+
+        var addedGameTags = new HashSet<GameTag>();
         foreach (string mechanic in data.Mechanics ?? [])
             if (Keywords.TryGetValue(mechanic, out GameTag[]? keywordTags))
-                tags.AddRange(keywordTags.Select(t => new Tag(t, 1)));
+                foreach (GameTag t in keywordTags)
+                    if (addedGameTags.Add(t))
+                        tags.Add(new Tag(t, 1));
 
-        return (Card)CardConstructor.Invoke([data.Id, data.DbfId, tags.ToArray(), new Dictionary<PlayReq, int>(), null, Array.Empty<Tag>()]);
+        if (compiled is { SpellPower: > 0 })
+            tags.Add(new Tag(GameTag.SPELLPOWER, compiled.SpellPower));
+        if (compiled is { HasDeathrattle: true } && addedGameTags.Add(GameTag.DEATHRATTLE))
+            tags.Add(new Tag(GameTag.DEATHRATTLE, 1));
+        if (compiled?.Power?.PowerTask is not null && type != CardType.SPELL && addedGameTags.Add(GameTag.BATTLECRY))
+            tags.Add(new Tag(GameTag.BATTLECRY, 1));
+
+        Dictionary<PlayReq, int> playReqs = compiled?.PlayRequirements ?? [];
+        var card = (Card)CardConstructor.Invoke([data.Id, data.DbfId, tags.ToArray(), playReqs, null, Array.Empty<Tag>()]);
+        if (compiled?.Power is not null)
+        {
+            card.Power = compiled.Power;
+            card.Implemented = true;
+        }
+        return card;
     }
 
     private static Dictionary<string, Card> KnownCards()
@@ -183,7 +280,7 @@ public static class ProxyCards
             .GetProperty("Cards", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(container)!;
     }
 
-    // Writes the auto-property's backing field: Id has a private setter, AssetId has none.
+    // Writes the auto-property's backing field: Id, Cost, ATK, Health have private setters, AssetId has none.
     private static void Set(Card card, string property, object value) =>
         typeof(Card).GetField($"<{property}>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(card, value);
 }

@@ -27,6 +27,23 @@ public static class GameExtensions
         typeof(Game).GetProperty("Random", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetMethod!.CreateDelegate<Action<Game, Util.DeepCloneableRandom>>();
 
+    private static readonly Func<Game, Util.DeepCloneableRandom> GetRandom =
+        typeof(Game).GetProperty("Random", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetMethod!.CreateDelegate<Func<Game, Util.DeepCloneableRandom>>();
+
+    private static readonly Action<Game, bool> RaiseRandomHappened =
+        typeof(Game).GetMethod("OnRandomHappened", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .CreateDelegate<Action<Game, bool>>();
+
+    /// <summary>Draws a reproducible integer in <c>[0, maxExclusive)</c> from <paramref name="game"/>'s RNG and flags randomness.</summary>
+    public static int NextRandomInt(this Game game, int maxExclusive)
+    {
+        if (maxExclusive <= 1)
+            return 0;
+        RaiseRandomHappened(game, true);
+        return GetRandom(game).Next(0, maxExclusive);
+    }
+
     public static bool OpponentDefeated(this Game game) =>
         game.CurrentOpponent.Hero.IsDead || game.CurrentOpponent.PlayState is PlayState.LOSING or PlayState.LOST;
 

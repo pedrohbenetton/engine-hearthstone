@@ -99,7 +99,7 @@ public class LiveRecommenderTests
         Assert.Contains("Turno 9", text);
         Assert.Contains("mana 5/5", text);
         Assert.Matches(@"1\. +\d+%  (Jogue|Ataque|Use|Encerre) ", text);
-        Assert.Contains("10 cartas sem efeito (proxy)", text);
+        Assert.Contains("7 cartas sem efeito (proxy)", text);
     }
 
     [Fact]
@@ -135,7 +135,7 @@ public class PanelTextTests
         Assert.Matches(@"^Vitória estimada \d+% · turno 9$", panel.Header);
         Assert.Equal(recommendation.Plans[0].Steps.Count, panel.Steps.Count);
         Assert.StartsWith("1. ", panel.Steps[0]);
-        Assert.Contains("10 cartas sem efeito (proxy)", panel.Footer);
+        Assert.Contains("7 cartas sem efeito (proxy)", panel.Footer);
     }
 
     [Fact]

@@ -20,6 +20,7 @@ public sealed class ScenarioBuilder
     private int _opponentHealth = 30;
     private int _opponentArmor;
     private readonly List<string> _hand = [];
+    private readonly List<string> _deck = [];
     private readonly List<string> _opponentHand = [];
     private readonly List<string> _board = [];
     private readonly List<string> _opponentBoard = [];
@@ -60,6 +61,12 @@ public sealed class ScenarioBuilder
     public ScenarioBuilder WithHand(params string[] cardNames)
     {
         _hand.AddRange(cardNames);
+        return this;
+    }
+
+    public ScenarioBuilder WithDeck(params string[] cardNames)
+    {
+        _deck.AddRange(cardNames);
         return this;
     }
 
@@ -110,6 +117,9 @@ public sealed class ScenarioBuilder
 
         foreach (string name in _hand)
             Generic.DrawCard(me, Find(name));
+
+        foreach (string name in _deck)
+            Entity.FromCard(me, Find(name), zone: me.DeckZone);
 
         // Player 2 receives The Coin at game start; the scenario defines its hand explicitly.
         foreach (IPlayable card in opponent.HandZone.ToList())

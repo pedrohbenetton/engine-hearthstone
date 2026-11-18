@@ -18,7 +18,9 @@ Medição em 4 partidas ranqueadas no Padrão (`Power.log` de 2026-10-31): das *
    - palavras-chave mecânicas: Provocar, Escudo Divino, Investida, Ímpeto, Furtividade, Fúria dos Ventos, Veneno, Roubo de Vida, Reborn e Congelar.
 
    O texto do efeito (Grito de Guerra, Último Suspiro, gatilhos, feitiços) é **ignorado**. Um feitiço proxy pode ser jogado (consome mana e sai da mão), mas não faz nada.
-3. **Núcleo do meta.** Os efeitos das cartas mais jogadas no Padrão (alvo inicial: ~100–150 cartas) são implementados aos poucos no fork, por ordem de frequência na base de decks. Cada carta entra com um teste de cenário. As reimpressões que o SabberStone já implementa são reaproveitadas por mapeamento de ID.
+3. **Núcleo do meta e compilador conservador de texto (`CardEffectCompiler`).**
+   - Reimpressões cujo texto normalizado coincide com uma carta implementada no SabberStone reaproveitam seu `Power` e `PlayRequirements` (atualizando custo/ataque/vida caso tenham sido rebalanceados no Core, e clonando sub-opções `a`/`b` de `Choose One`).
+   - Cartas novas do Padrão cujo texto inteiro corresponde sem ambiguidade a templates exatos (dano direto/AoE/mísseis, cura, compra/tutoria de lacaio, armadura, cristais de mana, destruição, silêncio, congelamento, buffs de atributos/keywords em feitiços, Grito de Guerra e Último Suspiro) têm seu `Power` sintetizado automaticamente em `CardEffectCompiler`. Cartas condicionais ou parciais permanecem como proxies explícitos.
 4. **Cobertura visível.** Toda recomendação informa quantas cartas do estado atual são proxy, para o jogador saber o quanto confiar.
 5. **Dados de cartas:** um snapshot versionado do HearthstoneJSON (`cards.json`), atualizado a cada patch como um passo do pipeline offline (ADR-0002).
 

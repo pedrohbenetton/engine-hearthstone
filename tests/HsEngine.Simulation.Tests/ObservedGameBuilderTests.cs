@@ -81,7 +81,10 @@ public class ObservedGameBuilderTests
         ConversionReport report = ObservedGameBuilder.Build(Turn9.Value).Report;
 
         Assert.Contains("JAIL_328", report.Proxies);
-        Assert.Contains("CORE_CS2_094", report.Proxies); // Hammer of Wrath costs 3 in Core, 4 in SabberStone
+        // CORE_CS2_094 (Hammer of Wrath), CS3_024 (Taelan Fordring) and EDR_000 (Ysera) now have real effects!
+        Assert.DoesNotContain("CORE_CS2_094", report.Proxies);
+        Assert.DoesNotContain("CS3_024", report.Proxies);
+        Assert.DoesNotContain("EDR_000", report.Proxies);
         Assert.Empty(report.Unsupported);
         Assert.Equal(5 + 32 + 17, report.HiddenCards);
     }

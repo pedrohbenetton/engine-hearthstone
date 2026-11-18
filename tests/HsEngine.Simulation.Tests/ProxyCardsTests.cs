@@ -83,11 +83,24 @@ public class ProxyCardsTests
     }
 
     [Fact]
-    public void Core_reprint_with_changed_cost_is_a_proxy()
+    public void Core_reprint_with_changed_cost_preserves_its_effect_at_the_new_cost()
     {
-        // Fan of Knives costs 2 in Core but 3 in SabberStone's EX1_129.
-        Assert.True(ProxyCards.IsProxy("CORE_EX1_129"));
+        // Fan of Knives costs 2 in Core (was 3 in SabberStone's EX1_129) with identical effect text:
+        // Deal 1 damage to all enemy minions and draw a card.
+        Assert.False(ProxyCards.IsProxy("CORE_EX1_129"));
         Assert.Equal(2, Cards.FromId("CORE_EX1_129").Cost);
+
+        Game game = new ScenarioBuilder()
+            .WithMana(2)
+            .WithHand("CORE_EX1_129")
+            .WithDeck("Chillwind Yeti")
+            .WithOpponentBoard("Bloodfen Raptor")
+            .Build();
+
+        Assert.True(game.Process(PlayCardTask.Spell(game.CurrentPlayer, game.CurrentPlayer.HandZone[0])));
+        Assert.Equal(1, game.CurrentOpponent.BoardZone[0].Health);
+        Assert.Single(game.CurrentPlayer.HandZone);
+        Assert.Equal("Chillwind Yeti", game.CurrentPlayer.HandZone[0].Card.Name);
     }
 
     [Fact]
