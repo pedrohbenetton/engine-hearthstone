@@ -1,17 +1,21 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
+using HsEngine.Ingestion;
 using HsEngine.Search;
+using HsEngine.Simulation;
 
 const string Usage =
     """
     usage:
-      HsEngine.Cli live  [--logs DIR] [--deck CODE] [--time-ms T] [--workers W] [--top N]
-      HsEngine.Cli arena [--deals N] [--iterations K] [--time-ms T] [--seed S] [--parallel P] [--out results.csv]
+      HsEngine.Cli live    [--logs DIR] [--deck CODE] [--time-ms T] [--workers W] [--top N]
+      HsEngine.Cli analyze [--log FILE | --logs DIR] [--turn T] [--deck CODE] [--time-ms T] [--workers W]
+      HsEngine.Cli arena   [--deals N] [--iterations K] [--time-ms T] [--seed S] [--parallel P] [--out results.csv]
     """;
 
 return args.FirstOrDefault() switch
 {
     "live" => RunLive(),
+    "analyze" => RunAnalyze(),
     "arena" => RunArena(),
     _ => Fail(),
 };
@@ -49,6 +53,38 @@ int RunLive()
     session.Recommended += recommendation => Console.WriteLine(RecommendationFormatter.Format(recommendation, top));
     session.Failed += ex => Console.Error.WriteLine($"Não foi possível recomendar esta posição: {ex.Message}");
     session.Run(stop.Token);
+    return 0;
+}
+
+int RunAnalyze()
+{
+    Console.OutputEncoding = System.Text.Encoding.UTF8;
+    string logs = OptionText("--logs") ?? LogLocator.DetectLogsDirectory();
+    string? logFile = OptionText("--log") ?? LogLocator.LatestPowerLog(logs);
+    if (logFile is null || !File.Exists(logFile))
+    {
+        Console.Error.WriteLine($"Nenhum Power.log encontrado (procurei em {logFile ?? logs}).");
+        return 1;
+    }
+
+    int? onlyTurn = OptionText("--turn") is { } t ? int.Parse(t) : null;
+    var options = new SearchOptions
+    {
+        TimeLimit = TimeSpan.FromMilliseconds(Option("--time-ms", 1500)),
+        Workers = Option("--workers", Environment.ProcessorCount),
+        Seed = Option("--seed", 1),
+    };
+
+    var decks = new List<DeckDefinition>();
+    if (OptionText("--deck") is { } code && DeckStringCodec.TryDecode(code, "Deck informado") is { } explicitDeck)
+        decks.Add(explicitDeck with { LastEdited = DateTimeOffset.MaxValue });
+    decks.AddRange(LocalDeckSources.ReadDecksLog(logs));
+    decks.AddRange(LocalDeckSources.ReadHdtPlayerDecks());
+
+    Console.WriteLine($"Analisando {logFile}...");
+    var analyzer = new ReplayAnalyzer(options, decks);
+    ReplayReport report = analyzer.Analyze(File.ReadLines(logFile), onlyTurn);
+    Console.Write(ReplayReportFormatter.Format(report));
     return 0;
 }
 

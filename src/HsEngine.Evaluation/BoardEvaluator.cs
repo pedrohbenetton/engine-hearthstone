@@ -1,3 +1,4 @@
+using System.Text.Json;
 using SabberStoneCore.Enums;
 using SabberStoneCore.Model;
 using SabberStoneCore.Model.Entities;
@@ -5,11 +6,18 @@ using SabberStoneCore.Model.Entities;
 namespace HsEngine.Evaluation;
 
 /// <summary>
-/// Hand-tuned weights for the heuristic evaluator (ADR-0006). <see cref="Scale"/> and <see cref="Bias"/> are the
-/// logistic calibration Win% = σ(Scale·score + Bias).
+/// Hand-tuned or Python-calibrated weights for the heuristic evaluator (ADR-0002, ADR-0006).
+/// <see cref="Scale"/> and <see cref="Bias"/> are the logistic calibration Win% = σ(Scale·score + Bias).
 /// </summary>
 public sealed record EvaluationWeights
 {
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+
+    public static EvaluationWeights LoadJson(string json) =>
+        JsonSerializer.Deserialize<EvaluationWeights>(json, JsonOptions)
+        ?? throw new InvalidDataException("Invalid EvaluationWeights JSON.");
+
+    public static EvaluationWeights LoadFile(string path) => LoadJson(File.ReadAllText(path));
     /// <summary>Multiplies √(health + armor): concave, so damage hurts more the lower the hero is.</summary>
     public double Health { get; init; } = 6.0;
     /// <summary>Per point of minion attack + health.</summary>

@@ -138,4 +138,15 @@ public class BoardEvaluatorTests
         Assert.True(Score(new ScenarioBuilder().WithBoard("Emperor Cobra")) > Score(new ScenarioBuilder().WithBoard("River Crocolisk")));
         Assert.True(Score(new ScenarioBuilder().WithBoard("Kobold Geomancer")) > Score(new ScenarioBuilder().WithBoard("Pint-Sized Summoner")));
     }
+
+    [Fact]
+    public void Deserializes_calibrated_weights_from_python_json_artifact()
+    {
+        EvaluationWeights weights = EvaluationWeights.LoadJson("""{"scale": 0.11, "bias": -0.02, "poisonous": 2.5}""");
+
+        Assert.Equal(0.11, weights.Scale, precision: 6);
+        Assert.Equal(-0.02, weights.Bias, precision: 6);
+        Assert.Equal(2.5, weights.Poisonous, precision: 6);
+        Assert.Equal(6.0, weights.Health, precision: 6);
+    }
 }
