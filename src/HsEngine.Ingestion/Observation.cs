@@ -35,7 +35,9 @@ public sealed record ObservedSide(
     int DeckCount,
     int SecretCount,
     IReadOnlyList<string>? KnownDeckCards = null,
-    IReadOnlyList<string>? SpentDeckCards = null);
+    IReadOnlyList<string>? SpentDeckCards = null,
+    IReadOnlyList<string?>? Secrets = null,
+    int Fatigue = 0);
 
 /// <summary>The game as the local player sees it: everything the recommender is allowed to use.</summary>
 public sealed record ObservedState(int Turn, int CurrentPlayerId, ObservedSide Me, ObservedSide Opponent);
@@ -93,6 +95,12 @@ public static class Observation
             .Select(e => e.CardId)
             .ToList();
 
+        List<TrackedEntity> activeSecrets = owned.Where(e => e["ZONE"] == "SECRET").OrderBy(e => e.Id).ToList();
+        List<string?> secretIds = activeSecrets
+            .Select(e => isLocal && e.CardId.Length > 0 ? e.CardId : null)
+            .ToList();
+        int fatigue = Math.Max(player.Entity.Int("FATIGUE"), hero.Int("FATIGUE"));
+
         return new ObservedSide(
             playerId,
             new ObservedHero(hero.CardId, hero["CLASS"] ?? "", hero.Int("HEALTH"), hero.Int("DAMAGE"), hero.Int("ARMOR"),
@@ -107,9 +115,11 @@ public static class Observation
             player.Board.Select(Minion).ToList(),
             player.Hand.Select(HandCard).ToList(),
             player.DeckCount,
-            owned.Count(e => e["ZONE"] == "SECRET"),
+            activeSecrets.Count,
             knownDeckCards,
-            spentDeckCards);
+            spentDeckCards,
+            secretIds,
+            fatigue);
     }
 
     private static ObservedHandCard HandCard(TrackedEntity c) => new(

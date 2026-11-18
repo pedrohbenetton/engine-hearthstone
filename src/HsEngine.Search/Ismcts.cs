@@ -15,8 +15,18 @@ public sealed record SearchOptions
     /// <summary>Independent trees merged at the root (root parallelization).</summary>
     public int Workers { get; init; } = 1;
     public int Seed { get; init; }
-    /// <summary>UCB exploration constant; rewards are win probabilities in [0, 1].</summary>
-    public double Exploration { get; init; } = 0.7;
+    /// <summary>UCB exploration constant; calibrated for dense [0, 1] Win% rewards (typical midgame spread ~0.12).</summary>
+    public double Exploration { get; init; } = 0.25;
+    /// <summary>
+    /// Turn-scoped RAVE/AMAF equivalence parameter (virtual visits before direct Monte Carlo dominates; 0 disables RAVE).
+    /// Commuting actions within a turn share action-value estimates at low visit counts and decay O(1/N) to exact MC.
+    /// </summary>
+    public double RaveEquivalence { get; init; } = 20.0;
+    /// <summary>
+    /// Coulom robust max-mean backup weight in [0, 1] within our own turn: blends a node's sample mean with its
+    /// most-visited follow-up child's value so setup plays (e.g. The Coin) are not dragged down by exploratory blunders.
+    /// </summary>
+    public double MaxBackupWeight { get; init; } = 0.5;
     /// <summary>Guards against endless turns: past this many actions the turn is ended.</summary>
     public int MaxActionsPerTurn { get; init; } = 40;
 }
@@ -29,6 +39,7 @@ public sealed record SearchOptions
 /// <param name="ConfidenceInterval95">Half-width of the 95% interval around <see cref="WinProbability"/>.</param>
 /// <param name="Continuation">Most-visited follow-up actions within the turn.</param>
 /// <param name="ContinuationKeys">The same follow-up actions as keys, to replay the line (TurnPlanner).</param>
+/// <param name="LethalProbability">Empirical probability [0, 1] that this line kills the opponent during our turn.</param>
 public sealed record RankedAction(
     ActionKey Key,
     string Description,
@@ -38,15 +49,17 @@ public sealed record RankedAction(
     double StdDev,
     double ConfidenceInterval95,
     IReadOnlyList<string> Continuation,
-    IReadOnlyList<ActionKey>? ContinuationKeys = null);
+    IReadOnlyList<ActionKey>? ContinuationKeys = null,
+    double LethalProbability = 0.0);
 
 /// <param name="Actions">Root actions, most visited first (robust child).</param>
 public sealed record SearchResult(IReadOnlyList<RankedAction> Actions, int Iterations, TimeSpan Elapsed);
 
 /// <summary>
-/// Single-observer ISMCTS over the searching player's turn (ADR-0004). Each iteration samples a world,
-/// walks the action tree with availability-aware UCB, ends the turn, lets <see cref="IOpponentPolicy"/> answer,
-/// and scores the result with the evaluator's Win Equity from the root player's perspective.
+/// Single-observer ISMCTS over the searching player's turn (ADR-0004) with availability-aware UCB + turn-scoped RAVE
+/// (AMAF), three-tier progressive action expansion, and stochastic turn-lethal tracking. Each iteration samples a
+/// world, walks the action tree, finishes the turn, lets <see cref="IOpponentPolicy"/> answer, and scores the result
+/// with the evaluator's Win Equity from the root player's perspective.
 /// </summary>
 public sealed class Ismcts(BoardEvaluator? evaluator = null, IDeterminizer? determinizer = null, IOpponentPolicy? opponent = null)
 {
@@ -88,7 +101,7 @@ public sealed class Ismcts(BoardEvaluator? evaluator = null, IDeterminizer? dete
         var path = new List<Node>();
         Node node = tree;
 
-        // Tree phase: select with UCB down the known part of our turn, expand one new action, then stop.
+        // Tree phase: select with availability-UCB + RAVE down the known part of our turn, expand one new action, then stop.
         for (int step = 0; world.State != State.COMPLETE && world.CurrentPlayer.PlayerId == me; step++)
         {
             if (step >= options.MaxActionsPerTurn)
@@ -99,7 +112,9 @@ public sealed class Ismcts(BoardEvaluator? evaluator = null, IDeterminizer? dete
 
             var legal = new Dictionary<ActionKey, PlayerTask>();
             foreach (PlayerTask task in world.CurrentPlayer.Options())
-                if (task.PlayerTaskType != PlayerTaskType.CONCEDE && BoardPlacement.IsCanonicalOption(task))
+                if (task.PlayerTaskType != PlayerTaskType.CONCEDE
+                    && BoardPlacement.IsCanonicalOption(task)
+                    && !BoardPlacement.IsDominatedOption(task))
                 {
                     ActionKey key = ActionKey.From(task);
                     if (!node.Rejected.Contains(key))
@@ -114,16 +129,19 @@ public sealed class Ismcts(BoardEvaluator? evaluator = null, IDeterminizer? dete
             Node? next;
             if (untried.Count > 0)
             {
-                // ADR-0004: information-revealing actions first; uniform among the remaining ties.
+                // 3-tier expansion: (1) information-revealing actions (ADR-0004), (2) active plays, (3) END_TURN.
                 List<ActionKey> preferred = untried.Where(k => InformationActions.RevealsInformation(legal[k])).ToList();
-                List<ActionKey> pool = preferred.Count > 0 ? preferred : untried;
+                List<ActionKey> active = preferred.Count > 0
+                    ? preferred
+                    : untried.Where(k => k.Type != PlayerTaskType.END_TURN).ToList();
+                List<ActionKey> pool = active.Count > 0 ? active : untried;
                 ActionKey key = pool[rng.Next(pool.Count)];
                 next = new Node(key, legal[key].ToString()) { Availability = 1, SourceCardName = legal[key].Source?.Card.Name };
                 node.Children[key] = next;
             }
             else
             {
-                next = SelectUcb(node, legal, options.Exploration);
+                next = SelectUcb(node, legal, options.Exploration, options.RaveEquivalence, options.MaxBackupWeight);
                 if (next is null)
                     break;
             }
@@ -142,29 +160,60 @@ public sealed class Ismcts(BoardEvaluator? evaluator = null, IDeterminizer? dete
                 break;
         }
 
-        // Rollout: the light policy finishes our turn, then plays the opponent's reply.
+        // Rollout: the light policy finishes our turn, check whether opponent died on our turn, then play opponent's reply.
         if (world.State != State.COMPLETE && world.CurrentPlayer.PlayerId == me)
-            _opponent.PlayTurn(world, rng);
-        if (world.State != State.COMPLETE)
             _opponent.PlayTurn(world, rng);
 
         Controller perspective = world.Player1.PlayerId == me ? world.Player1 : world.Player2;
+        bool turnLethal = perspective.PlayState == PlayState.WON
+                          || (perspective.Opponent.Hero.IsDead && !perspective.Hero.IsDead);
+
+        if (world.State != State.COMPLETE)
+            _opponent.PlayTurn(world, rng);
+
         double reward = _evaluator.WinProbability(world, perspective);
         foreach (Node visited in path)
-            visited.Record(reward);
+            visited.Record(reward, turnLethal);
+
+        if (options.RaveEquivalence > 0 && path.Count > 0)
+        {
+            var seen = new HashSet<ActionKey>();
+            for (int i = path.Count - 1; i >= 0; i--)
+            {
+                seen.Add(path[i].Key!.Value);
+                Node parent = i == 0 ? tree : path[i - 1];
+                foreach (ActionKey subsequent in seen)
+                    parent.RecordAmaf(subsequent, reward);
+            }
+        }
     }
 
-    private static Node? SelectUcb(Node node, Dictionary<ActionKey, PlayerTask> legal, double c)
+    private static Node? SelectUcb(Node node, Dictionary<ActionKey, PlayerTask> legal, double c, double raveK, double maxMix)
     {
         Node? best = null;
         double bestValue = double.NegativeInfinity;
         foreach (Node child in node.Children.Values)
         {
-            if (!legal.ContainsKey(child.Key!.Value))
+            ActionKey key = child.Key!.Value;
+            if (!legal.ContainsKey(key))
                 continue;
-            double value = child.Visits == 0
-                ? double.PositiveInfinity
-                : child.Mean + c * Math.Sqrt(Math.Log(child.Availability) / child.Visits);
+
+            double value;
+            if (child.Visits == 0)
+            {
+                value = double.PositiveInfinity;
+            }
+            else
+            {
+                double q = child.BackedUpValue(maxMix);
+                if (raveK > 0 && node.Amaf.TryGetValue(key, out (int Visits, double Sum) amaf) && amaf.Visits > 0)
+                {
+                    double beta = raveK / (raveK + child.Visits);
+                    q = (1.0 - beta) * q + beta * (amaf.Sum / amaf.Visits);
+                }
+                value = q + c * Math.Sqrt(Math.Log(child.Availability) / child.Visits);
+            }
+
             if (value > bestValue)
                 (best, bestValue) = (child, value);
         }
@@ -173,15 +222,15 @@ public sealed class Ismcts(BoardEvaluator? evaluator = null, IDeterminizer? dete
 
     private static List<RankedAction> Merge(Node[] trees)
     {
-        var merged = new Dictionary<ActionKey, (Node First, int Visits, double Sum, double SumSquares, Node MostVisited)>();
+        var merged = new Dictionary<ActionKey, (Node First, int Visits, int Lethals, double Sum, double SumSquares, Node MostVisited)>();
         foreach (Node tree in trees)
         foreach (Node child in tree.Children.Values)
         {
             ActionKey key = child.Key!.Value;
             merged[key] = merged.TryGetValue(key, out var acc)
-                ? (acc.First, acc.Visits + child.Visits, acc.Sum + child.Sum, acc.SumSquares + child.SumSquares,
+                ? (acc.First, acc.Visits + child.Visits, acc.Lethals + child.Lethals, acc.Sum + child.Sum, acc.SumSquares + child.SumSquares,
                    child.Visits > acc.MostVisited.Visits ? child : acc.MostVisited)
-                : (child, child.Visits, child.Sum, child.SumSquares, child);
+                : (child, child.Visits, child.Lethals, child.Sum, child.SumSquares, child);
         }
 
         return merged.Values
@@ -191,9 +240,19 @@ public sealed class Ismcts(BoardEvaluator? evaluator = null, IDeterminizer? dete
                 double variance = m.Visits == 0 ? 0 : Math.Max(0, m.SumSquares / m.Visits - mean * mean);
                 double sd = Math.Sqrt(variance);
                 double ci = m.Visits == 0 ? 1 : Math.Min(1, 1.96 * sd / Math.Sqrt(m.Visits));
-                return new RankedAction(m.First.Key!.Value, m.First.Description!, m.First.SourceCardName,
-                    m.Visits, mean, sd, ci, Continuation(m.MostVisited).Select(n => n.Description!).ToList(),
-                    Continuation(m.MostVisited).Select(n => n.Key!.Value).ToList());
+                double lethalProb = m.Visits == 0 ? 0 : (double)m.Lethals / m.Visits;
+                List<Node> cont = Continuation(m.MostVisited);
+                return new RankedAction(
+                    m.First.Key!.Value,
+                    m.First.Description!,
+                    m.First.SourceCardName,
+                    m.Visits,
+                    mean,
+                    sd,
+                    ci,
+                    cont.Select(n => n.Description!).ToList(),
+                    cont.Select(n => n.Key!.Value).ToList(),
+                    lethalProb);
             })
             .OrderByDescending(a => a.Visits)
             .ThenByDescending(a => a.WinProbability)
@@ -217,19 +276,43 @@ public sealed class Ismcts(BoardEvaluator? evaluator = null, IDeterminizer? dete
         public string? Description { get; } = description;
         public string? SourceCardName { get; init; }
         public Dictionary<ActionKey, Node> Children { get; } = [];
+        public Dictionary<ActionKey, (int Visits, double Sum)> Amaf { get; } = [];
         public HashSet<ActionKey> Rejected { get; } = [];
         public int Visits { get; private set; }
+        public int Lethals { get; private set; }
         /// <summary>Iterations in which this action was legal (SO-ISMCTS availability count).</summary>
         public int Availability { get; set; }
         public double Sum { get; private set; }
         public double SumSquares { get; private set; }
         public double Mean => Visits == 0 ? 0 : Sum / Visits;
 
-        public void Record(double reward)
+        public double BackedUpValue(double maxMix)
+        {
+            double mean = Mean;
+            if (maxMix <= 0 || Children.Count == 0)
+                return mean;
+
+            Node? robustChild = Children.Values.MaxBy(c => c.Visits);
+            if (robustChild is null || robustChild.Visits < 4)
+                return mean;
+
+            return (1.0 - maxMix) * mean + maxMix * robustChild.BackedUpValue(maxMix);
+        }
+
+        public void Record(double reward, bool turnLethal)
         {
             Visits++;
+            if (turnLethal)
+                Lethals++;
             Sum += reward;
             SumSquares += reward * reward;
+        }
+
+        public void RecordAmaf(ActionKey action, double reward)
+        {
+            Amaf[action] = Amaf.TryGetValue(action, out (int Visits, double Sum) acc)
+                ? (acc.Visits + 1, acc.Sum + reward)
+                : (1, reward);
         }
     }
 }

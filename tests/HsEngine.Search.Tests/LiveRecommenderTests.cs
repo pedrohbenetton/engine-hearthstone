@@ -146,4 +146,33 @@ public class PanelTextTests
         Assert.Empty(PanelText.Thinking.Steps);
         Assert.Equal("Calculando melhor jogada…", PanelText.Thinking.Header);
     }
+
+    [Fact]
+    public void Panel_and_formatter_surface_stochastic_and_guaranteed_lethal()
+    {
+        var live = new LiveRecommender(new SearchOptions { Iterations = 10, Seed = 1 });
+        foreach (string line in File.ReadLines(Path.Combine(AppContext.BaseDirectory, "Fixtures", "standard-game1.log")))
+        {
+            live.Feed([line]);
+            if (live.State.Turn == 9 && line.Contains("tag=STEP value=MAIN_ACTION", StringComparison.Ordinal))
+                break;
+        }
+        Recommendation baseRec = live.Recommend()!;
+
+        Recommendation stochastic = baseRec with
+        {
+            Plans = [baseRec.Plans[0] with { WinProbability = 0.78, LethalProbability = 0.50 }],
+            IsGuaranteedLethal = false,
+        };
+        Assert.Equal("Vitória estimada 78% (letal 50%) · turno 9", PanelText.From(stochastic).Header);
+        Assert.Contains("| letal 50%", RecommendationFormatter.Format(stochastic));
+
+        Recommendation guaranteed = baseRec with
+        {
+            Plans = [baseRec.Plans[0] with { WinProbability = 1.0, LethalProbability = 1.0 }],
+            IsGuaranteedLethal = true,
+        };
+        Assert.Equal("LETAL GARANTIDO (100%) · turno 9", PanelText.From(guaranteed).Header);
+        Assert.Contains("| LETAL EXATO", RecommendationFormatter.Format(guaranteed));
+    }
 }

@@ -154,7 +154,9 @@ public static class PanelText
 
         string header = recommendation.IsGuaranteedLethal
             ? string.Create(culture, $"LETAL GARANTIDO (100%) · turno {recommendation.Observed.Turn}")
-            : string.Create(culture, $"Vitória estimada {best.WinProbability * 100:F0}% · turno {recommendation.Observed.Turn}");
+            : best.LethalProbability >= 0.01
+                ? string.Create(culture, $"Vitória estimada {best.WinProbability * 100:F0}% (letal {best.LethalProbability * 100:F0}%) · turno {recommendation.Observed.Turn}")
+                : string.Create(culture, $"Vitória estimada {best.WinProbability * 100:F0}% · turno {recommendation.Observed.Turn}");
 
         return new PanelContent(
             header,
@@ -177,7 +179,12 @@ public static class RecommendationFormatter
         string rangeInfo = recommendation.Range is { TopArchetypeName: { Length: > 0 } arch }
             ? $" | range {arch} ({recommendation.Range.TopArchetypeProbability * 100:F0}%)"
             : "";
-        string lethalTag = recommendation.IsGuaranteedLethal ? " | LETAL EXATO" : "";
+        TurnPlan? best = recommendation.Plans.FirstOrDefault();
+        string lethalTag = recommendation.IsGuaranteedLethal
+            ? " | LETAL EXATO"
+            : best is { LethalProbability: >= 0.01 }
+                ? string.Create(culture, $" | letal {best.LethalProbability * 100:F0}%")
+                : "";
 
         text.AppendLine(culture, $"Turno {observed.Turn} | mana {remaining}/{available} | você {Life(me.Hero)} | oponente {Life(opponent.Hero)}" +
                                  $"{rangeInfo} | {recommendation.Report.Proxies.Count} cartas sem efeito (proxy) | busca {recommendation.Result.Elapsed.TotalSeconds:F1} s{lethalTag}");

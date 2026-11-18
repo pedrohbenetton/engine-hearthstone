@@ -146,4 +146,32 @@ public class BoardPlacementTests
         Assert.True(lethal.IsDeterministic);
         Assert.Equal(2, lethal.OptionPath.Count);
     }
+
+    [Fact]
+    public void Prunes_pure_self_harm_and_enemy_buffs_while_keeping_damage_triggers()
+    {
+        Game game = new ScenarioBuilder()
+            .WithHeroes(CardClass.MAGE, CardClass.MAGE)
+            .WithMana(6)
+            .WithBoard("Chillwind Yeti", "Acolyte of Pain")
+            .WithOpponentBoard("River Crocolisk")
+            .WithHand("Fireball", "Abusive Sergeant")
+            .Build();
+
+        List<PlayerTask> options = game.CurrentPlayer.Options();
+        var me = game.CurrentPlayer;
+        var opp = game.CurrentOpponent;
+
+        PlayerTask fireballOwnHero = options.Single(t => t.Source?.Card.Name == "Fireball" && t.Target == me.Hero);
+        PlayerTask fireballOwnYeti = options.Single(t => t.Source?.Card.Name == "Fireball" && t.Target == me.BoardZone[0]);
+        PlayerTask pingOwnAcolyte = options.Single(t => t.PlayerTaskType == PlayerTaskType.HERO_POWER && t.Target == me.BoardZone[1]);
+        PlayerTask buffEnemyMinion = options.First(t => t.Source?.Card.Name == "Abusive Sergeant" && t.Target == opp.BoardZone[0]);
+        PlayerTask buffFriendlyYeti = options.First(t => t.Source?.Card.Name == "Abusive Sergeant" && t.Target == me.BoardZone[0]);
+
+        Assert.True(BoardPlacement.IsDominatedOption(fireballOwnHero));
+        Assert.True(BoardPlacement.IsDominatedOption(fireballOwnYeti));
+        Assert.False(BoardPlacement.IsDominatedOption(pingOwnAcolyte));
+        Assert.True(BoardPlacement.IsDominatedOption(buffEnemyMinion));
+        Assert.False(BoardPlacement.IsDominatedOption(buffFriendlyYeti));
+    }
 }

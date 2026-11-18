@@ -132,4 +132,66 @@ public class IsmctsTests
 
         Assert.Equal(PlayState.LOST, game.Player1.PlayState);
     }
+
+    [Fact]
+    public void Estimates_stochastic_lethal_probability_for_rng_burn()
+    {
+        // Arcane Missiles fires 3 independent 1-damage missiles split uniformly between enemy hero (2 HP) and
+        // Northshire Cleric (1/3, survives all 3 missiles).
+        // With opponent deck non-empty (no fatigue): exact lethal probability = P(Binomial(3, 0.5) >= 2) = 4/8 = 0.50.
+        Game noFatigue = new ScenarioBuilder()
+            .WithMana(1)
+            .WithOpponentHero(2)
+            .WithOpponentBoard("Northshire Cleric")
+            .WithOpponentDeck("Bloodfen Raptor")
+            .WithHand("Arcane Missiles")
+            .Build();
+
+        SearchResult result = Run(noFatigue, iterations: 600, seed: 11);
+
+        RankedAction missiles = result.Actions.Single(a => a.SourceCardName == "Arcane Missiles");
+        RankedAction endTurn = result.Actions.Single(a => a.Key.Type == PlayerTaskType.END_TURN);
+
+        Assert.InRange(missiles.LethalProbability, 0.40, 0.60);
+        Assert.Equal(0.0, endTurn.LethalProbability, precision: 9);
+
+        TurnPlan plan = TurnPlanner.From(noFatigue, missiles);
+        Assert.Equal(missiles.LethalProbability, plan.LethalProbability, precision: 9);
+
+        // With opponent deck empty (1 fatigue damage on EndTurn): >= 1 missile to face kills! Exact = 7/8 = 0.875.
+        Game withFatigue = new ScenarioBuilder()
+            .WithMana(1)
+            .WithOpponentHero(2)
+            .WithOpponentBoard("Northshire Cleric")
+            .WithHand("Arcane Missiles")
+            .Build();
+
+        RankedAction fatigueMissiles = Run(withFatigue, iterations: 600, seed: 11)
+            .Actions.Single(a => a.SourceCardName == "Arcane Missiles");
+        Assert.InRange(fatigueMissiles.LethalProbability, 0.78, 0.96);
+    }
+
+    [Fact]
+    public void Rave_accelerates_identification_of_commuting_lethal_setup_under_tight_budget()
+    {
+        // Mage (Fireblast 1 dmg, 2 mana) + 2x Elven Archer (1 dmg, 1 mana each) = exact 3 damage for 4 mana.
+        // Any 2-mana or 1-mana distraction minion leaves insufficient mana for all 3 pings.
+        Game game = new ScenarioBuilder()
+            .WithHeroes(CardClass.MAGE, CardClass.WARRIOR)
+            .WithMana(4)
+            .WithOpponentHero(3)
+            .WithOpponentDeck("Bloodfen Raptor")
+            .WithHand("Elven Archer", "Elven Archer", "Goldshire Footman", "Shieldbearer", "River Crocolisk")
+            .Build();
+
+        SearchResult withRave = new Ismcts().Search(game, new SearchOptions { Iterations = 100, Seed = 5, RaveEquivalence = 20 });
+        RankedAction best = withRave.Actions[0];
+        Assert.True(best.SourceCardName == "Elven Archer" || best.Key.Type == PlayerTaskType.HERO_POWER,
+            $"Unexpected root action: {best.Description}");
+        Assert.True(best.WinProbability > 0.85, $"p = {best.WinProbability}");
+        Assert.True(best.LethalProbability > 0.0, $"lethal = {best.LethalProbability}");
+        Assert.All(
+            withRave.Actions.Where(a => a.SourceCardName is "Goldshire Footman" or "Shieldbearer" or "River Crocolisk"),
+            a => Assert.Equal(0.0, a.LethalProbability, precision: 9));
+    }
 }

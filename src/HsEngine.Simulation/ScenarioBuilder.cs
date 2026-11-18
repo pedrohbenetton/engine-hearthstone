@@ -22,6 +22,7 @@ public sealed class ScenarioBuilder
     private readonly List<string> _hand = [];
     private readonly List<string> _deck = [];
     private readonly List<string> _opponentHand = [];
+    private readonly List<string> _opponentDeck = [];
     private readonly List<string> _board = [];
     private readonly List<string> _opponentBoard = [];
 
@@ -67,6 +68,12 @@ public sealed class ScenarioBuilder
     public ScenarioBuilder WithDeck(params string[] cardNames)
     {
         _deck.AddRange(cardNames);
+        return this;
+    }
+
+    public ScenarioBuilder WithOpponentDeck(params string[] cardNames)
+    {
+        _opponentDeck.AddRange(cardNames);
         return this;
     }
 
@@ -126,6 +133,9 @@ public sealed class ScenarioBuilder
             opponent.HandZone.Remove(card);
         foreach (string name in _opponentHand)
             Generic.DrawCard(opponent, Find(name));
+
+        foreach (string name in _opponentDeck)
+            Entity.FromCard(opponent, Find(name), zone: opponent.DeckZone);
 
         foreach (string name in _board)
             Summon(game, me, name).IsExhausted = false;

@@ -32,7 +32,10 @@ internal static class Program
             app.Dispatcher.BeginInvoke(() => app.Shutdown());
         };
 
-        var session = new LiveSession(logs, options, Option(args, "--deck"));
+        var weights = Option(args, "--weights") is { } wPath
+            ? HsEngine.Evaluation.EvaluationWeights.LoadFile(wPath)
+            : null;
+        var session = new LiveSession(logs, options, Option(args, "--deck"), weights);
         session.Status += Console.WriteLine;
         session.Failed += ex => Console.Error.WriteLine($"Não foi possível recomendar esta posição: {ex.Message}");
         session.LocalTurnChanged += localTurn =>

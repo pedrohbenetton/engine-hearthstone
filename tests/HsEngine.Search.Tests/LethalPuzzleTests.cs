@@ -93,4 +93,19 @@ public class LethalPuzzleTests
         Assert.True(result.Exhausted);
         Assert.False(result.IsLethal);
     }
+
+    [Fact]
+    public void Topdeck_dependent_draw_lethal_is_not_marked_deterministic()
+    {
+        // Arcane Intellect (3 mana) + topdecked Fireball (4 mana) = 7 mana for 6 damage, but deck also has a Raptor.
+        Game game = new ScenarioBuilder()
+            .WithMana(7)
+            .WithOpponentHero(6)
+            .WithHand("Arcane Intellect")
+            .WithDeck("Fireball", "Bloodfen Raptor", "River Crocolisk")
+            .Build();
+
+        LethalResult result = new LethalSolver().Solve(game);
+        Assert.False(result.IsDeterministic);
+    }
 }

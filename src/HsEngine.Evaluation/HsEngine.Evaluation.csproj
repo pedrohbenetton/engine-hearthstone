@@ -5,6 +5,10 @@
     <ProjectReference Include="..\HsEngine.Simulation\HsEngine.Simulation.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\..\data\weights\*.json" Link="weights\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

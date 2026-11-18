@@ -113,4 +113,29 @@ public class ObservationTests
         Assert.Contains(turn1.Opponent.Hand, c => c.IsCreated && !c.KeptInMulligan);
         Assert.Empty(turn1.Opponent.KnownDeckCards!);
     }
+
+    [Fact]
+    public void Sanitizes_opponent_secrets_while_preserving_local_secrets_and_fatigue()
+    {
+        PowerEvent[] secretAndFatigue =
+        [
+            new FullEntity(9101, "EX1_289", new Dictionary<string, string> { ["ZONE"] = "SECRET", ["CONTROLLER"] = "1", ["CARDTYPE"] = "SPELL" }),
+            new FullEntity(9102, "EX1_287", new Dictionary<string, string> { ["ZONE"] = "SECRET", ["CONTROLLER"] = "2", ["CARDTYPE"] = "SPELL" }),
+            new TagChange(new EntityRef(3), "FATIGUE", "4"),
+        ];
+        PowerEvent[] maskedOpponentSecret =
+        [
+            new FullEntity(9101, "EX1_289", new Dictionary<string, string> { ["ZONE"] = "SECRET", ["CONTROLLER"] = "1", ["CARDTYPE"] = "SPELL" }),
+            new FullEntity(9102, "", new Dictionary<string, string> { ["ZONE"] = "SECRET", ["CONTROLLER"] = "2" }),
+            new TagChange(new EntityRef(3), "FATIGUE", "4"),
+        ];
+
+        ObservedState a = Observation.From(AtMainAction(9, secretAndFatigue));
+        ObservedState b = Observation.From(AtMainAction(9, maskedOpponentSecret));
+
+        Assert.Equal(["EX1_289"], a.Me.Secrets!);
+        Assert.Equal([null], a.Opponent.Secrets!);
+        Assert.Equal(4, a.Opponent.Fatigue);
+        Assert.Equal(JsonSerializer.Serialize(b), JsonSerializer.Serialize(a));
+    }
 }

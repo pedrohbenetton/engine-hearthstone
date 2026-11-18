@@ -149,4 +149,27 @@ public class BoardEvaluatorTests
         Assert.Equal(2.5, weights.Poisonous, precision: 6);
         Assert.Equal(6.0, weights.Health, precision: 6);
     }
+
+    [Fact]
+    public void Active_secret_and_fatigue_advantage_improve_score_antisymmetrically()
+    {
+        Game withSecret = new ScenarioBuilder().WithMana(3).WithHand("Ice Barrier").Build();
+        int playIdx = withSecret.CurrentPlayer.Options().FindIndex(t => t.Source?.Card.Name == "Ice Barrier");
+        Assert.True(withSecret.Process(withSecret.CurrentPlayer.Options()[playIdx]));
+
+        Game withoutSecret = new ScenarioBuilder().WithMana(0).Build();
+        Assert.True(_evaluator.Evaluate(withSecret, withSecret.CurrentPlayer) > _evaluator.Evaluate(withoutSecret, withoutSecret.CurrentPlayer));
+        Assert.Equal(
+            _evaluator.Evaluate(withSecret, withSecret.CurrentPlayer),
+            -_evaluator.Evaluate(withSecret, withSecret.CurrentOpponent),
+            precision: 9);
+
+        Game opponentInFatigue = new ScenarioBuilder().WithDeck("Bloodfen Raptor").Build();
+        opponentInFatigue.CurrentOpponent.Hero.Fatigue = 3;
+        Assert.True(_evaluator.Evaluate(opponentInFatigue, opponentInFatigue.CurrentPlayer) > 0);
+        Assert.Equal(
+            _evaluator.Evaluate(opponentInFatigue, opponentInFatigue.CurrentPlayer),
+            -_evaluator.Evaluate(opponentInFatigue, opponentInFatigue.CurrentOpponent),
+            precision: 9);
+    }
 }

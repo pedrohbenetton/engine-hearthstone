@@ -1,5 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
+using HsEngine.Evaluation;
 using HsEngine.Ingestion;
 using HsEngine.Search;
 using HsEngine.Simulation;
@@ -7,9 +9,9 @@ using HsEngine.Simulation;
 const string Usage =
     """
     usage:
-      HsEngine.Cli live    [--logs DIR] [--deck CODE] [--time-ms T] [--workers W] [--top N]
-      HsEngine.Cli analyze [--log FILE | --logs DIR] [--turn T] [--deck CODE] [--time-ms T] [--workers W]
-      HsEngine.Cli arena   [--deals N] [--iterations K] [--time-ms T] [--seed S] [--parallel P] [--out results.csv]
+      HsEngine.Cli live    [--logs DIR] [--deck CODE] [--weights FILE] [--time-ms T] [--workers W] [--top N]
+      HsEngine.Cli analyze [--log FILE | --logs DIR] [--turn T] [--deck CODE] [--weights FILE] [--time-ms T] [--workers W]
+      HsEngine.Cli arena   [--deals N] [--iterations K] [--time-ms T] [--seed S] [--parallel P] [--weights FILE] [--out results.csv] [--samples-out samples.csv]
     """;
 
 return args.FirstOrDefault() switch
@@ -48,7 +50,7 @@ int RunLive()
         stop.Cancel();
     };
 
-    var session = new LiveSession(logs, options, OptionText("--deck"));
+    var session = new LiveSession(logs, options, OptionText("--deck"), LoadWeights());
     session.Status += message => Console.WriteLine($"{message} (Ctrl+C para sair)");
     session.Recommended += recommendation => Console.WriteLine(RecommendationFormatter.Format(recommendation, top));
     session.Failed += ex => Console.Error.WriteLine($"Não foi possível recomendar esta posição: {ex.Message}");
@@ -82,7 +84,7 @@ int RunAnalyze()
     decks.AddRange(LocalDeckSources.ReadHdtPlayerDecks());
 
     Console.WriteLine($"Analisando {logFile}...");
-    var analyzer = new ReplayAnalyzer(options, decks);
+    var analyzer = new ReplayAnalyzer(options, decks, evaluator: new BoardEvaluator(LoadWeights()));
     ReplayReport report = analyzer.Analyze(File.ReadLines(logFile), onlyTurn);
     Console.Write(ReplayReportFormatter.Format(report));
     return 0;
@@ -105,7 +107,11 @@ int RunArena()
         TimeLimit = timeMs > 0 ? TimeSpan.FromMilliseconds(timeMs) : null,
     };
     string? outPath = OptionText("--out");
-    var arena = new Arena(search);
+    string? samplesOutPath = OptionText("--samples-out");
+    if (samplesOutPath is not null && !File.Exists(samplesOutPath))
+        File.WriteAllText(samplesOutPath, "score,outcome\n");
+
+    var arena = new Arena(search, weights: LoadWeights());
     var results = new ConcurrentBag<MatchResult>(outPath is not null && File.Exists(outPath) ? ReadResults(outPath) : []);
     var done = results.Select(r => (r.Seed, r.IsmctsPlayer)).ToHashSet();
     var writeLock = new object();
@@ -127,6 +133,23 @@ int RunArena()
             lock (writeLock)
                 File.AppendAllText(outPath,
                     $"{r.Seed},{r.IsmctsPlayer},{r.Outcome},{r.Turns},{r.Decisions},{r.Elapsed.TotalMilliseconds:F0}{Environment.NewLine}");
+        if (samplesOutPath is not null && r.Player1TurnScores is { Count: > 0 } turnScores)
+        {
+            double p1Outcome = r.Outcome switch
+            {
+                SabberStoneCore.Enums.PlayState.WON => r.IsmctsPlayer == 1 ? 1.0 : 0.0,
+                SabberStoneCore.Enums.PlayState.LOST => r.IsmctsPlayer == 1 ? 0.0 : 1.0,
+                _ => 0.5,
+            };
+            var lines = new List<string>(turnScores.Count * 2);
+            foreach (double s in turnScores)
+            {
+                lines.Add(string.Create(CultureInfo.InvariantCulture, $"{s:F4},{p1Outcome:F1}"));
+                lines.Add(string.Create(CultureInfo.InvariantCulture, $"{-s:F4},{1.0 - p1Outcome:F1}"));
+            }
+            lock (writeLock)
+                File.AppendAllLines(samplesOutPath, lines);
+        }
         Console.WriteLine($"  deal {r.Seed} seat {r.IsmctsPlayer}: {r.Outcome,-4} turns {r.Turns,2} decisions {r.Decisions,3} " +
                           $"{r.Elapsed.TotalSeconds,6:F1}s ({r.Elapsed.TotalMilliseconds / Math.Max(1, r.Decisions),5:F0} ms/decision)");
     });
@@ -141,6 +164,9 @@ int RunArena()
     }
     return 0;
 }
+
+EvaluationWeights? LoadWeights() =>
+    OptionText("--weights") is { } path ? EvaluationWeights.LoadFile(path) : EvaluationWeights.LoadDefaultOrNull();
 
 int Option(string name, int fallback) => OptionText(name) is { } text ? int.Parse(text) : fallback;
 

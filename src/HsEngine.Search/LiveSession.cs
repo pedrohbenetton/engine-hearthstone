@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using HsEngine.Evaluation;
 using HsEngine.Ingestion;
 using HsEngine.Simulation;
 
@@ -9,7 +10,11 @@ namespace HsEngine.Search;
 /// the logs folder, follows it, and raises a recommendation at every decision point of the local player. It moves to
 /// a newer session folder when the game restarts. Passive read only (ADR-0005).
 /// </summary>
-public sealed class LiveSession(string logsDirectory, SearchOptions options, string? explicitDeckString = null)
+public sealed class LiveSession(
+    string logsDirectory,
+    SearchOptions options,
+    string? explicitDeckString = null,
+    EvaluationWeights? weights = null)
 {
     private static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan SessionCheck = TimeSpan.FromSeconds(5);
@@ -40,7 +45,10 @@ public sealed class LiveSession(string logsDirectory, SearchOptions options, str
     {
         Status?.Invoke($"Seguindo {path}");
         using var tail = new LogTail(path);
-        var live = new LiveRecommender(options, candidateDecks: LoadCandidateDecks());
+        var live = new LiveRecommender(
+            options,
+            candidateDecks: LoadCandidateDecks(),
+            evaluator: weights is null ? null : new BoardEvaluator(weights));
         var sessionCheck = Stopwatch.StartNew();
         bool localTurn = false;
 

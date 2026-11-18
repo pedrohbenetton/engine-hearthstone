@@ -96,4 +96,25 @@ public class ObservedGameBuilderTests
 
         Assert.Throws<ArgumentException>(() => ObservedGameBuilder.Build(observed));
     }
+
+    [Fact]
+    public void Activates_known_local_secret_and_preserves_fatigue_counters()
+    {
+        ObservedState observed = Turn9.Value with
+        {
+            Me = Turn9.Value.Me with { SecretCount = 1, Secrets = ["EX1_289"], Fatigue = 2 },
+            Opponent = Turn9.Value.Opponent with { SecretCount = 1, Secrets = [null], Fatigue = 5 },
+        };
+
+        Game game = ObservedGameBuilder.Build(observed).Game;
+        Assert.Equal((2, 5), (game.CurrentPlayer.Hero.Fatigue, game.CurrentOpponent.Hero.Fatigue));
+        Assert.Equal((1, 1), (game.CurrentPlayer.SecretZone.Count, game.CurrentOpponent.SecretZone.Count));
+
+        // End our turn and let opponent's minion attack our hero: Ice Barrier (EX1_289) must trigger (+8 Armor)!
+        Assert.True(game.Process(SabberStoneCore.Tasks.PlayerTasks.EndTurnTask.Any(game.CurrentPlayer)));
+        var faceAttack = game.CurrentPlayer.Options().First(t => t.Target == game.CurrentOpponent.Hero);
+        Assert.True(game.Process(faceAttack));
+        Assert.True(game.Player1.Hero.Armor > 0);
+        Assert.Equal(0, game.Player1.SecretZone.Count);
+    }
 }

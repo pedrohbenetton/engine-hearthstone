@@ -19,7 +19,7 @@ public sealed record StepTarget(bool Friendly, int? BoardIndex, string CardId);
 public sealed record PlanStep(
     StepKind Kind, string? SourceCardId, int? HandIndex, int? BoardIndex, bool SourceIsHero, StepTarget? Target, int? Placement);
 
-public sealed record TurnPlan(double WinProbability, IReadOnlyList<PlanStep> Steps);
+public sealed record TurnPlan(double WinProbability, IReadOnlyList<PlanStep> Steps, double LethalProbability = 0.0);
 
 /// <summary>
 /// Replays the best line on a copy of the root game (ADR-0009) and records each step with real entities.
@@ -41,7 +41,7 @@ public static class TurnPlanner
             if (task.PlayerTaskType == PlayerTaskType.END_TURN || !game.Process(task))
                 break;
         }
-        return new TurnPlan(best.WinProbability, steps);
+        return new TurnPlan(best.WinProbability, steps, best.LethalProbability);
     }
 
     public static (TurnPlan Plan, RankedAction Action) FromOptionPath(Game root, IReadOnlyList<int> optionPath)
@@ -77,9 +77,10 @@ public static class TurnPlanner
             StdDev: 0.0,
             ConfidenceInterval95: 0.0,
             descriptions.Skip(1).ToList(),
-            keys.Skip(1).ToList());
+            keys.Skip(1).ToList(),
+            LethalProbability: 1.0);
 
-        return (new TurnPlan(1.0, steps), ranked);
+        return (new TurnPlan(1.0, steps, LethalProbability: 1.0), ranked);
     }
 
     private static PlayerTask? SelectTask(List<PlayerTask> options, ActionKey key) =>

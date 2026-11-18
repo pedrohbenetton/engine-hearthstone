@@ -79,7 +79,7 @@ public static class ObservedGameBuilder
         public void Side(Controller controller, ObservedSide side)
         {
             // Opening draws from the empty deck dealt fatigue; the coin went to player 2. Both are replaced below.
-            controller.Hero.Fatigue = 0;
+            controller.Hero.Fatigue = side.Fatigue;
             foreach (IPlayable card in controller.HandZone.ToList())
                 controller.HandZone.Remove(card);
 
@@ -120,6 +120,23 @@ public static class ObservedGameBuilder
                 IPlayable playable = Generic.DrawCard(controller, card);
                 if (observedCard.Cost is int cost && playable.Cost != cost)
                     playable[GameTag.COST] = cost;
+            }
+
+            IEnumerable<string?> secrets = side.Secrets ?? Enumerable.Repeat<string?>(null, side.SecretCount);
+            foreach (string? secretId in secrets.Take(SabberStoneCore.Model.Zones.SecretZone.SecretZoneMaxSize))
+            {
+                if (secretId is not null
+                    && Find(secretId) is { Power: not null } secretCard
+                    && Entity.FromCard(controller, secretCard) is Spell knownSecret)
+                {
+                    knownSecret.Power.Trigger?.Activate(knownSecret);
+                    controller.SecretZone.Add(knownSecret);
+                    knownSecret.IsExhausted = true;
+                }
+                else
+                {
+                    Entity.FromCard(controller, Hidden(), zone: controller.SecretZone);
+                }
             }
 
             for (int i = 0; i < side.DeckCount; i++)

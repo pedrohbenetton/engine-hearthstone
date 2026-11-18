@@ -12,7 +12,14 @@ namespace HsEngine.Search;
 /// <param name="IsmctsPlayer">Seat (1 goes first, 2 gets The Coin) played by the ISMCTS agent.</param>
 /// <param name="Outcome">Result for the ISMCTS agent; TIED also covers the turn limit.</param>
 /// <param name="Decisions">Searches run by the ISMCTS agent (one per action).</param>
-public sealed record MatchResult(long Seed, int IsmctsPlayer, PlayState Outcome, int Turns, int Decisions, TimeSpan Elapsed);
+public sealed record MatchResult(
+    long Seed,
+    int IsmctsPlayer,
+    PlayState Outcome,
+    int Turns,
+    int Decisions,
+    TimeSpan Elapsed,
+    IReadOnlyList<double>? Player1TurnScores = null);
 
 /// <param name="WinRate">Wins plus half the ties, over games.</param>
 /// <param name="Lower95">Wilson score interval, 95%.</param>
@@ -39,9 +46,10 @@ public sealed record MatchSummary(int Games, int Wins, int Losses, int Ties, dou
 /// The ISMCTS agent re-searches before every action and only sees what its seat could see: the search
 /// resamples hidden information on its own (<see cref="HiddenInformationDeterminizer"/>).
 /// </summary>
-public sealed class Arena(SearchOptions search, int maxTurns = 60, int maxActionsPerTurn = 40)
+public sealed class Arena(SearchOptions search, int maxTurns = 60, int maxActionsPerTurn = 40, EvaluationWeights? weights = null)
 {
-    private readonly BoardEvaluator _evaluator = new();
+    private readonly BoardEvaluator _evaluator = new(weights);
+    private readonly LethalSolver _lethalSolver = new(maxNodes: 10_000);
 
     public MatchResult Play(long seed, int ismctsPlayer)
     {
@@ -49,10 +57,15 @@ public sealed class Arena(SearchOptions search, int maxTurns = 60, int maxAction
         Game game = GameFactory.CreateWithDecks(CardClass.MAGE, Decks.BasicMage, CardClass.MAGE, Decks.BasicMage, seed);
         var greedy = new GreedyOpponentPolicy(_evaluator);
         var rng = new Random(unchecked((int)seed * 31 + ismctsPlayer));
+        var p1Scores = new List<double>();
         int decisions = 0;
 
         while (game.State != State.COMPLETE && game.Turn <= maxTurns)
         {
+            double rawScore = _evaluator.Evaluate(game, game.Player1);
+            if (Math.Abs(rawScore) < BoardEvaluator.WinScore)
+                p1Scores.Add(rawScore);
+
             if (game.CurrentPlayer.PlayerId != ismctsPlayer)
             {
                 greedy.PlayTurn(game, rng);
@@ -72,14 +85,23 @@ public sealed class Arena(SearchOptions search, int maxTurns = 60, int maxAction
         PlayState outcome = game.State == State.COMPLETE && me.PlayState is PlayState.WON or PlayState.LOST
             ? me.PlayState
             : PlayState.TIED;
-        return new MatchResult(seed, ismctsPlayer, outcome, game.Turn, decisions, clock.Elapsed);
+        return new MatchResult(seed, ismctsPlayer, outcome, game.Turn, decisions, clock.Elapsed, p1Scores);
     }
 
     private PlayerTask Decide(Game game, int decision, long seed)
     {
+        List<PlayerTask> options = game.CurrentPlayer.Options();
+        LethalResult lethal = _lethalSolver.Solve(game);
+        if (lethal is { IsLethal: true, IsDeterministic: true, OptionPath.Count: > 0 }
+            && (uint)lethal.OptionPath[0] < (uint)options.Count)
+        {
+            return options[lethal.OptionPath[0]];
+        }
+
         SearchResult result = new Ismcts(_evaluator).Search(game, search with { Seed = Seeds.Derive(seed, decision) });
         ActionKey best = result.Actions[0].Key;
-        return game.CurrentPlayer.Options().FirstOrDefault(t => ActionKey.From(t) == best)
+        return options.FirstOrDefault(t => BoardPlacement.IsCanonicalOption(t) && ActionKey.From(t) == best)
+               ?? options.FirstOrDefault(t => ActionKey.From(t) == best)
                ?? EndTurnTask.Any(game.CurrentPlayer);
     }
 }

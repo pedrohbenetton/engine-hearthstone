@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "scale": 0.122971,
+  "bias": 0.0,
+  "metrics": {
+    "ece": 0.044465,
+    "brier": 0.201789,
+    "samples": 4162
+  }
+}

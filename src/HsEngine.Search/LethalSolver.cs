@@ -47,6 +47,8 @@ public sealed class LethalSolver(int maxNodes = 200_000)
         foreach (long seed in (ReadOnlySpan<long>)[17L, 999_983L])
         {
             Game copy = root.CloneWithSeed(seed);
+            int initialDeckCount = copy.CurrentPlayer.DeckZone.Count;
+            bool deckHasDistinctCards = copy.CurrentPlayer.DeckZone.Select(c => c.Card.Id).Distinct().Count() > 1;
             bool randomFired = false;
             copy.RandomHappenedEvent += (_, _) => randomFired = true;
 
@@ -57,7 +59,8 @@ public sealed class LethalSolver(int maxNodes = 200_000)
                     return false;
             }
 
-            if (randomFired || !copy.OpponentDefeated())
+            bool drewUncertainCard = deckHasDistinctCards && copy.CurrentPlayer.DeckZone.Count < initialDeckCount;
+            if (randomFired || drewUncertainCard || !copy.OpponentDefeated())
                 return false;
         }
         return true;

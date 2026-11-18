@@ -18,6 +18,12 @@ public sealed record EvaluationWeights
         ?? throw new InvalidDataException("Invalid EvaluationWeights JSON.");
 
     public static EvaluationWeights LoadFile(string path) => LoadJson(File.ReadAllText(path));
+
+    public static EvaluationWeights? LoadDefaultOrNull()
+    {
+        string bundled = Path.Combine(AppContext.BaseDirectory, "weights", "calibrated.json");
+        return File.Exists(bundled) ? LoadFile(bundled) : null;
+    }
     /// <summary>Multiplies √(health + armor): concave, so damage hurts more the lower the hero is.</summary>
     public double Health { get; init; } = 6.0;
     /// <summary>Per point of minion attack + health.</summary>
@@ -35,6 +41,10 @@ public sealed record EvaluationWeights
     /// <summary>Per point of weapon attack × durability.</summary>
     public double Weapon { get; init; } = 0.5;
     public double CardInHand { get; init; } = 2.5;
+    /// <summary>Per active secret or quest in <c>SecretZone</c>.</summary>
+    public double Secret { get; init; } = 2.0;
+    /// <summary>Penalty per point of next fatigue tick when a side's deck is empty.</summary>
+    public double FatiguePenalty { get; init; } = 1.5;
     /// <summary>Flat term when a side's board damage reaches the other hero's effective health.</summary>
     public double LethalThreat { get; init; } = 15.0;
     public double Scale { get; init; } = 0.08;
@@ -50,7 +60,7 @@ public sealed class BoardEvaluator(EvaluationWeights? weights = null)
 {
     public const double WinScore = 1_000_000;
 
-    private readonly EvaluationWeights _w = weights ?? new EvaluationWeights();
+    private readonly EvaluationWeights _w = weights ?? EvaluationWeights.LoadDefaultOrNull() ?? new EvaluationWeights();
 
     public double Evaluate(Game game, Controller perspective)
     {
@@ -85,6 +95,10 @@ public sealed class BoardEvaluator(EvaluationWeights? weights = null)
             value += _w.Weapon * weapon.AttackDamage * weapon.Durability;
 
         value += _w.CardInHand * side.HandZone.Count;
+        value += _w.Secret * side.SecretZone.Count;
+
+        if (side.DeckZone.Count == 0)
+            value -= _w.FatiguePenalty * (side.Hero.Fatigue + 1);
 
         if (BoardDamage(side, blockers: other) >= EffectiveHealth(other))
             value += _w.LethalThreat;
