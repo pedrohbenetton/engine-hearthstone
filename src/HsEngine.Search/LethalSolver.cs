@@ -65,7 +65,8 @@ public sealed class LethalSolver(int maxNodes = 200_000)
             List<PlayerTask> options = game.CurrentPlayer.Options();
             for (int i = 0; i < options.Count; i++)
             {
-                if (options[i].PlayerTaskType is PlayerTaskType.END_TURN or PlayerTaskType.CONCEDE)
+                if (options[i].PlayerTaskType is PlayerTaskType.END_TURN or PlayerTaskType.CONCEDE
+                    || !BoardPlacement.IsCanonicalOption(options[i]))
                     continue;
 
                 // Options are recomputed on the child so the task binds to the child's entities.

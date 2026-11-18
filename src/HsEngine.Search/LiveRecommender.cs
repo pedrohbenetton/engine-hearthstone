@@ -6,7 +6,8 @@ using HsEngine.Simulation;
 
 namespace HsEngine.Search;
 
-public sealed record Recommendation(ObservedState Observed, ConversionReport Report, SearchResult Result);
+/// <param name="Plans">Step plans of the top lines (ADR-0009), best first.</param>
+public sealed record Recommendation(ObservedState Observed, ConversionReport Report, SearchResult Result, IReadOnlyList<TurnPlan> Plans);
 
 /// <summary>
 /// Live loop core (ADR-0007): feeds Power.log lines into the state machine and decides when a recommendation is
@@ -15,6 +16,8 @@ public sealed record Recommendation(ObservedState Observed, ConversionReport Rep
 /// </summary>
 public sealed class LiveRecommender(SearchOptions options, Ismcts? search = null)
 {
+    private const int PlannedLines = 3;
+
     private readonly PowerLogParser _parser = new();
     private readonly Ismcts _search = search ?? new Ismcts();
     private long _version;
@@ -31,14 +34,15 @@ public sealed class LiveRecommender(SearchOptions options, Ismcts? search = null
                 Apply(e);
     }
 
-    public bool ShouldRecommend =>
-        _version != _recommendedVersion
-        && _blockDepth == 0
-        && State.LocalPlayerId is int local
+    /// <summary>The game is running and the local player is in the main phase of their turn.</summary>
+    public bool IsLocalMainPhase =>
+        State.LocalPlayerId is int local
         && Game() is { } game
         && game["STATE"] != "COMPLETE"
         && game["STEP"] == "MAIN_ACTION"
         && CurrentPlayerId() == local;
+
+    public bool ShouldRecommend => _version != _recommendedVersion && _blockDepth == 0 && IsLocalMainPhase;
 
     public Recommendation? Recommend()
     {
@@ -57,7 +61,8 @@ public sealed class LiveRecommender(SearchOptions options, Ismcts? search = null
 
         ConvertedGame converted = ObservedGameBuilder.Build(observed, options.Seed);
         SearchResult result = _search.Search(converted.Game, options);
-        return new Recommendation(observed, converted.Report, result);
+        List<TurnPlan> plans = result.Actions.Take(PlannedLines).Select(a => TurnPlanner.From(converted.Game, a)).ToList();
+        return new Recommendation(observed, converted.Report, result, plans);
     }
 
     private void Apply(PowerEvent e)
@@ -85,34 +90,63 @@ public sealed class LiveRecommender(SearchOptions options, Ismcts? search = null
         State.Entities.Values.Where(x => x["CARDTYPE"] == "PLAYER" && x["CURRENT_PLAYER"] == "1").Select(x => x.Int("PLAYER_ID")).FirstOrDefault();
 }
 
+/// <summary>What the overlay panel shows (ADR-0009): a header, numbered steps and a coverage footer.</summary>
+public sealed record PanelContent(string Header, IReadOnlyList<string> Steps, string Footer);
+
+public static class PanelText
+{
+    public static PanelContent Waiting { get; } = new("Aguardando seu turno", [], "");
+    public static PanelContent Thinking { get; } = new("Calculando melhor jogada…", [], "");
+
+    public static PanelContent From(Recommendation recommendation)
+    {
+        CultureInfo culture = CultureInfo.GetCultureInfo("pt-BR");
+        TurnPlan? best = recommendation.Plans.FirstOrDefault();
+        if (best is null)
+            return Waiting;
+
+        ConversionReport report = recommendation.Report;
+        string footer = string.Create(culture,
+            $"{report.Proxies.Count} cartas sem efeito (proxy) · {report.HiddenCards} ocultas · busca {recommendation.Result.Elapsed.TotalSeconds:F1} s");
+        if (recommendation.Plans.Count > 1 && recommendation.Plans[1].Steps.Count > 0)
+            footer += string.Create(culture,
+                $"\nAlternativa ({recommendation.Plans[1].WinProbability * 100:F0}%): {PlanText.Describe(recommendation.Plans[1].Steps[0])}");
+
+        return new PanelContent(
+            string.Create(culture, $"Vitória estimada {best.WinProbability * 100:F0}% · turno {recommendation.Observed.Turn}"),
+            best.Steps.Select((s, i) => $"{i + 1}. {PlanText.Describe(s)}").ToList(),
+            footer);
+    }
+}
+
+/// <summary>Terminal text of a recommendation, in Portuguese like the overlay.</summary>
 public static class RecommendationFormatter
 {
     public static string Format(Recommendation recommendation, int top = 3)
     {
         ObservedState observed = recommendation.Observed;
         ObservedSide me = observed.Me, opponent = observed.Opponent;
-        int available = me.Resources + me.TemporaryResources - me.OverloadLocked;
-        int remaining = available - me.ResourcesUsed;
+        (int remaining, int available) = Mana(me);
         CultureInfo culture = CultureInfo.InvariantCulture;
 
         var text = new StringBuilder();
-        text.AppendLine(culture, $"Turn {observed.Turn} | mana {remaining}/{available} | you {Life(me.Hero)} | opponent {Life(opponent.Hero)} | " +
-                                 $"{recommendation.Report.Proxies.Count} proxies, {recommendation.Report.HiddenCards} hidden cards | " +
-                                 $"{recommendation.Result.Iterations} iterations in {recommendation.Result.Elapsed.TotalSeconds:F1} s");
+        text.AppendLine(culture, $"Turno {observed.Turn} | mana {remaining}/{available} | você {Life(me.Hero)} | oponente {Life(opponent.Hero)} | " +
+                                 $"{recommendation.Report.Proxies.Count} cartas sem efeito (proxy) | busca {recommendation.Result.Elapsed.TotalSeconds:F1} s");
         if (recommendation.Report.Unsupported.Count > 0)
-            text.AppendLine(culture, $"  left out: {string.Join(", ", recommendation.Report.Unsupported)}");
+            text.AppendLine(culture, $"  fora da simulação: {string.Join(", ", recommendation.Report.Unsupported)}");
 
         int rank = 1;
-        foreach (RankedAction action in recommendation.Result.Actions.Take(top))
-        {
-            // ASCII only: the Windows console code page garbles "±".
-            text.AppendLine(culture, $"  {rank++}. {action.WinProbability * 100,3:F0}% +/-{action.ConfidenceInterval95 * 100:F0}%  {action.Description}");
-            if (action.Continuation.Count > 0)
-                text.AppendLine(culture, $"       then {string.Join(" > ", action.Continuation)}");
-        }
+        foreach (TurnPlan plan in recommendation.Plans.Take(top))
+            text.AppendLine(culture, $"  {rank++}. {plan.WinProbability * 100,3:F0}%  {string.Join(" > ", plan.Steps.Select(PlanText.Describe))}");
         return text.ToString();
     }
 
-    private static string Life(ObservedHero hero) =>
+    public static (int Remaining, int Available) Mana(ObservedSide side)
+    {
+        int available = side.Resources + side.TemporaryResources - side.OverloadLocked;
+        return (available - side.ResourcesUsed, available);
+    }
+
+    public static string Life(ObservedHero hero) =>
         hero.Armor > 0 ? $"{hero.Health - hero.Damage}+{hero.Armor} hp" : $"{hero.Health - hero.Damage} hp";
 }

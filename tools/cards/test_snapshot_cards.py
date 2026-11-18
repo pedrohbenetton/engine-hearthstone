@@ -1,4 +1,4 @@
-from snapshot_cards import trim
+from snapshot_cards import localized_names, trim
 
 MINION = {
     "id": "XYZ_001", "dbfId": 1, "name": "Proxy Minion", "type": "MINION", "cost": 3, "attack": 2, "health": 4,
@@ -35,3 +35,9 @@ def test_output_is_sorted_by_id_for_stable_diffs():
     b, a = {**MINION, "id": "B"}, {**MINION, "id": "A"}
 
     assert [c["id"] for c in trim([b, a])] == ["A", "B"]
+
+
+def test_localized_names_cover_only_snapshot_cards():
+    localized = [{"id": "XYZ_001", "name": "Lacaio Proxy"}, {"id": "BG_001", "name": "Fora do snapshot"}]
+
+    assert localized_names(localized, [MINION]) == {"XYZ_001": "Lacaio Proxy"}

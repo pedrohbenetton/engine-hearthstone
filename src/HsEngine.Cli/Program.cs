@@ -1,6 +1,5 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
-using HsEngine.Ingestion;
 using HsEngine.Search;
 
 const string Usage =
@@ -27,7 +26,9 @@ int Fail()
 // player (ADR-0007). Passive read only (ADR-0005): nothing is sent to the game.
 int RunLive()
 {
-    string logs = OptionText("--logs") ?? @"C:\Program Files (x86)\Hearthstone\Logs";
+    Console.OutputEncoding = System.Text.Encoding.UTF8;
+    string logs = OptionText("--logs") ?? HsEngine.Ingestion.LogLocator.DetectLogsDirectory();
+    Console.WriteLine($"Pasta de logs: {logs}");
     int top = Option("--top", 3);
     var options = new SearchOptions
     {
@@ -43,60 +44,12 @@ int RunLive()
         stop.Cancel();
     };
 
-    Console.WriteLine($"Waiting for a Power.log under {logs} (Ctrl+C to quit)...");
-    while (!stop.IsCancellationRequested)
-    {
-        string? path = LogLocator.LatestPowerLog(logs);
-        if (path is null)
-        {
-            Thread.Sleep(1000);
-            continue;
-        }
-        Follow(path, options, top, logs, stop.Token);
-    }
+    var session = new LiveSession(logs, options);
+    session.Status += message => Console.WriteLine($"{message} (Ctrl+C para sair)");
+    session.Recommended += recommendation => Console.WriteLine(RecommendationFormatter.Format(recommendation, top));
+    session.Failed += ex => Console.Error.WriteLine($"Não foi possível recomendar esta posição: {ex.Message}");
+    session.Run(stop.Token);
     return 0;
-}
-
-// Returns when a newer game session (new log folder) appears or on Ctrl+C.
-static void Follow(string path, SearchOptions options, int top, string logs, CancellationToken stop)
-{
-    Console.WriteLine($"Following {path}");
-    using var tail = new LogTail(path);
-    var live = new LiveRecommender(options);
-    var sessionCheck = Stopwatch.StartNew();
-
-    while (!stop.IsCancellationRequested)
-    {
-        List<string> lines = tail.ReadNewLines();
-        if (lines.Count > 0)
-        {
-            live.Feed(lines);
-            continue;
-        }
-
-        // Caught up with the game: recommend if it is the local player's decision.
-        if (live.ShouldRecommend)
-        {
-            try
-            {
-                if (live.Recommend() is { } recommendation)
-                    Console.WriteLine(RecommendationFormatter.Format(recommendation, top));
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                Console.Error.WriteLine($"Could not recommend this position: {ex.Message}");
-            }
-            continue;
-        }
-
-        if (sessionCheck.Elapsed > TimeSpan.FromSeconds(5))
-        {
-            sessionCheck.Restart();
-            if (LogLocator.LatestPowerLog(logs) is { } latest && latest != path)
-                return;
-        }
-        Thread.Sleep(200);
-    }
 }
 
 // Each deal is played twice, once from each seat, so seat advantage cancels out.

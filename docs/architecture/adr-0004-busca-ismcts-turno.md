@@ -13,7 +13,7 @@
 
 ## Implementação (2026-10-31)
 
-- **Identidade de ação (`ActionKey`):** é semântica (tipo, carta de origem, posição no board, alvo codificado, posicionamento, escolha), não o índice de `Options()`. Assim as estatísticas valem entre determinizações. Cartas iguais na mão são intercambiáveis.
+- **Identidade de ação (`ActionKey`) e deduplicação posicional (`BoardPlacement`):** a chave é semântica (tipo, carta de origem, posição no board, alvo codificado, posicionamento, escolha), não o índice de `Options()`. Assim as estatísticas valem entre determinizações. Cartas iguais na mão são intercambiáveis. Para lacaios jogados da mão, o slot `ZonePosition` só entra na chave (e na busca/rollout/plano) quando há ao menos uma carta posicional observável em jogo ou na nossa mão (`ADJACENT_BUFF`, `MODULAR`/Magnético ou texto posicional como *adjacent*, *next to*, *left/right-most*); caso contrário usa-se apenas o slot canônico à direita (`BoardZone.Count`, `Placement = -1`), concentrando visitas e eliminando linhas duplicadas por posição.
 - **Seleção:** UCB com contagem de disponibilidade (SO-ISMCTS), com recompensa = Win% ∈ [0, 1] e C = 0,7. O ranking final usa o filho mais visitado (*robust child*).
 - **Iteração:** uma expansão por iteração. Depois dela, a política greedy de 1-ply termina o nosso turno e joga o turno do oponente, e a avaliação é aplicada no início do nosso turno seguinte.
 - **Determinização (`HiddenInformationDeterminizer`):** reembaralha o nosso deck e redistribui de forma uniforme as cartas ocultas do oponente (mão ∪ deck). Cartas geradas (`CREATOR`) e The Coin ficam onde estão. O RNG de cada mundo vem de uma seed (`CloneWithSeed`, por reflexão, porque `Game.Random` é `internal`).

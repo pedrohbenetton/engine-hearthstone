@@ -28,6 +28,7 @@ public sealed record SearchOptions
 /// <param name="StdDev">Standard deviation of those rewards: the line's risk.</param>
 /// <param name="ConfidenceInterval95">Half-width of the 95% interval around <see cref="WinProbability"/>.</param>
 /// <param name="Continuation">Most-visited follow-up actions within the turn.</param>
+/// <param name="ContinuationKeys">The same follow-up actions as keys, to replay the line (TurnPlanner).</param>
 public sealed record RankedAction(
     ActionKey Key,
     string Description,
@@ -36,7 +37,8 @@ public sealed record RankedAction(
     double WinProbability,
     double StdDev,
     double ConfidenceInterval95,
-    IReadOnlyList<string> Continuation);
+    IReadOnlyList<string> Continuation,
+    IReadOnlyList<ActionKey>? ContinuationKeys = null);
 
 /// <param name="Actions">Root actions, most visited first (robust child).</param>
 public sealed record SearchResult(IReadOnlyList<RankedAction> Actions, int Iterations, TimeSpan Elapsed);
@@ -97,8 +99,12 @@ public sealed class Ismcts(BoardEvaluator? evaluator = null, IDeterminizer? dete
 
             var legal = new Dictionary<ActionKey, PlayerTask>();
             foreach (PlayerTask task in world.CurrentPlayer.Options())
-                if (task.PlayerTaskType != PlayerTaskType.CONCEDE && !node.Rejected.Contains(ActionKey.From(task)))
-                    legal.TryAdd(ActionKey.From(task), task);
+                if (task.PlayerTaskType != PlayerTaskType.CONCEDE && BoardPlacement.IsCanonicalOption(task))
+                {
+                    ActionKey key = ActionKey.From(task);
+                    if (!node.Rejected.Contains(key))
+                        legal.TryAdd(key, task);
+                }
 
             foreach (Node child in node.Children.Values)
                 if (legal.ContainsKey(child.Key!.Value))
@@ -186,20 +192,21 @@ public sealed class Ismcts(BoardEvaluator? evaluator = null, IDeterminizer? dete
                 double sd = Math.Sqrt(variance);
                 double ci = m.Visits == 0 ? 1 : Math.Min(1, 1.96 * sd / Math.Sqrt(m.Visits));
                 return new RankedAction(m.First.Key!.Value, m.First.Description!, m.First.SourceCardName,
-                    m.Visits, mean, sd, ci, Continuation(m.MostVisited));
+                    m.Visits, mean, sd, ci, Continuation(m.MostVisited).Select(n => n.Description!).ToList(),
+                    Continuation(m.MostVisited).Select(n => n.Key!.Value).ToList());
             })
             .OrderByDescending(a => a.Visits)
             .ThenByDescending(a => a.WinProbability)
             .ToList();
     }
 
-    private static List<string> Continuation(Node node)
+    private static List<Node> Continuation(Node node)
     {
-        var line = new List<string>();
+        var line = new List<Node>();
         for (Node? n = node; n.Children.Count > 0; )
         {
             n = n.Children.Values.MaxBy(c => c.Visits)!;
-            line.Add(n.Description!);
+            line.Add(n);
         }
         return line;
     }

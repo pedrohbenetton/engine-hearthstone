@@ -96,10 +96,54 @@ public class LiveRecommenderTests
 
         string text = RecommendationFormatter.Format(live.Recommend()!, top: 3);
 
-        Assert.Contains("Turn 9", text);
+        Assert.Contains("Turno 9", text);
         Assert.Contains("mana 5/5", text);
-        Assert.Matches(@"1\. +\d+% \+/-\d+%", text);
-        Assert.Contains("proxies", text);
-        Assert.Contains("1.", text);
+        Assert.Matches(@"1\. +\d+%  (Jogue|Ataque|Use|Encerre) ", text);
+        Assert.Contains("10 cartas sem efeito (proxy)", text);
+    }
+
+    [Fact]
+    public void Recommendation_carries_a_step_plan_for_the_top_lines()
+    {
+        LiveRecommender live = NewRecommender();
+        FeedUntilMainAction(live, 9);
+
+        Recommendation recommendation = live.Recommend()!;
+
+        Assert.InRange(recommendation.Plans.Count, 1, 3);
+        Assert.Equal(recommendation.Result.Actions[0].WinProbability, recommendation.Plans[0].WinProbability);
+        Assert.NotEmpty(recommendation.Plans[0].Steps);
+    }
+}
+
+public class PanelTextTests
+{
+    [Fact]
+    public void Panel_lists_the_best_plan_and_the_coverage()
+    {
+        var live = new LiveRecommender(new SearchOptions { Iterations = 20, Seed = 1 });
+        foreach (string line in File.ReadLines(Path.Combine(AppContext.BaseDirectory, "Fixtures", "standard-game1.log")))
+        {
+            live.Feed([line]);
+            if (live.State.Turn == 9 && line.Contains("tag=STEP value=MAIN_ACTION", StringComparison.Ordinal))
+                break;
+        }
+        Recommendation recommendation = live.Recommend()!;
+
+        PanelContent panel = PanelText.From(recommendation);
+
+        Assert.Matches(@"^Vitória estimada \d+% · turno 9$", panel.Header);
+        Assert.Equal(recommendation.Plans[0].Steps.Count, panel.Steps.Count);
+        Assert.StartsWith("1. ", panel.Steps[0]);
+        Assert.Contains("10 cartas sem efeito (proxy)", panel.Footer);
+    }
+
+    [Fact]
+    public void Waiting_and_thinking_panels_have_no_steps()
+    {
+        Assert.Empty(PanelText.Waiting.Steps);
+        Assert.Equal("Aguardando seu turno", PanelText.Waiting.Header);
+        Assert.Empty(PanelText.Thinking.Steps);
+        Assert.Equal("Calculando melhor jogada…", PanelText.Thinking.Header);
     }
 }

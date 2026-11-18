@@ -30,7 +30,7 @@ public sealed class GreedyOpponentPolicy(BoardEvaluator evaluator, int maxAction
 
             for (int i = 0; i < options.Count; i++)
             {
-                if (options[i].PlayerTaskType == PlayerTaskType.CONCEDE)
+                if (options[i].PlayerTaskType == PlayerTaskType.CONCEDE || !BoardPlacement.IsCanonicalOption(options[i]))
                     continue;
 
                 Game child = game.Clone(logging: false, resetRandomSeed: false, history: false);

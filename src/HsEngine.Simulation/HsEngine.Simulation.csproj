@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <None Include="..\..\data\cards\cards.255790.json" Link="cards\cards.255790.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\data\cards\names.ptBR.255790.json" Link="cards\names.ptBR.255790.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <PropertyGroup>

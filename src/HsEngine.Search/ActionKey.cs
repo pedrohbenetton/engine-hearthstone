@@ -18,7 +18,7 @@ namespace HsEngine.Search;
 public readonly record struct ActionKey(
     PlayerTaskType Type, int Source, int SourcePosition, int Target, int Placement, int Choice)
 {
-    public static ActionKey From(PlayerTask task)
+    public static ActionKey From(PlayerTask task, bool preservePlacement = false)
     {
         Controller me = task.Controller;
         int source = task.Source?.Card.AssetId ?? 0;
@@ -31,7 +31,9 @@ public readonly record struct ActionKey(
             ChooseTask choose => choose.Choices.Count == 1 ? task.Game.IdEntityDic[choose.Choices[0]].Card.AssetId : -1,
             _ => task.ChooseOne,
         };
-        int placement = task is PlayCardTask play ? play.ZonePosition : -1;
+        int placement = task is PlayCardTask play && (preservePlacement || BoardPlacement.Matters(play))
+            ? play.ZonePosition
+            : -1;
 
         return new ActionKey(task.PlayerTaskType, source, sourcePosition, EncodeTarget(me, task.Target), placement, choice);
     }
