@@ -44,7 +44,7 @@ internal static class Program
         {
             Console.WriteLine(RecommendationFormatter.Format(recommendation));
             PanelContent panel = PanelText.From(recommendation);
-            window.Dispatcher.BeginInvoke(() => window.Show(panel));
+            window.Dispatcher.BeginInvoke(() => window.Show(panel, recommendation));
         };
         Task live = Task.Run(() => session.Run(stop.Token));
 

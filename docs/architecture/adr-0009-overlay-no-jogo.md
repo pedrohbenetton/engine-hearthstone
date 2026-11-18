@@ -15,8 +15,8 @@ O comando `live` funciona numa partida real, mas a saída no terminal é difíci
    - Continua valendo o ADR-0005: nada de leitura ou injeção de memória, nada de automação de input. A janela não recebe cliques e não envia nada ao jogo.
 2. **Fase 1, painel:** passos numerados em português, com o nome pt-BR das cartas, a % de vitória e um aviso de cobertura (quantas cartas são proxy).
    - Os passos vêm da melhor linha da ISMCTS, reaplicada numa cópia do jogo. Assim cada passo traz a carta de origem, o alvo e a posição reais naquele momento.
-3. **Fase 2, setas:** destaques e setas sobre as cartas da mão e do board, mostrando o próximo passo.
-   - As posições na tela são calculadas por proporção da área cliente, como faz o Hearthstone Deck Tracker, e calibradas com capturas de tela.
+3. **Fase 2, setas e destaques (`BoardGeometry`):** anéis luminosos e setas curvas Bézier sobre as cartas da mão, lacaios do board, retratos de herói, poder heroico e botão de encerrar turno, mostrando visualmente o próximo passo recomendado e avançando automaticamente a cada ação detectada no `Power.log`.
+   - As posições na tela são calculadas no referencial 4:3 centralizado proporcional à altura cliente (funciona em 16:9, 16:10 e 21:9 ultrawide), calibradas com capturas reais de tela.
 4. **Nomes pt-BR:** vêm de um mapa `id → nome` gerado do `cards.json` ptBR do HearthstoneJSON, do mesmo build do snapshot (ADR-0008).
 
 ## Consequências

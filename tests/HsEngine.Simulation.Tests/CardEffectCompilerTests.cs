@@ -68,45 +68,45 @@ public class CardEffectCompilerTests
     [Fact]
     public void Compiles_custom_standard_buff_damage_freeze_and_battlecry_cards()
     {
-        ProxyCards.Register(
-        [
+        // Test CardEffectCompiler directly without mutating SabberStone's process-wide card table mid-run.
+        CompiledCardEffect buff = CardEffectCompiler.TryCompile(
             new CardData("TST_BUFF_1", 990001, "Holy Blessing", "SPELL", "TST", Cost: 2, CardClass: "PALADIN",
                 Text: "Give a friendly minion +2/+3 and <b>Taunt</b>."),
+            CardType.SPELL)!;
+        CompiledCardEffect archer = CardEffectCompiler.TryCompile(
             new CardData("TST_BC_DMG", 990002, "Flame Archer", "MINION", "TST", Cost: 3, Attack: 3, Health: 2, CardClass: "NEUTRAL",
                 Mechanics: ["BATTLECRY"], Text: "<b>Battlecry:</b> Deal 2 damage to an enemy."),
+            CardType.MINION)!;
+        CompiledCardEffect freeze = CardEffectCompiler.TryCompile(
             new CardData("TST_FREEZE_AOE", 990003, "Frost Wave", "SPELL", "TST", Cost: 3, CardClass: "MAGE",
                 Text: "Freeze all enemy minions. Draw a card."),
-        ]);
+            CardType.SPELL)!;
 
-        Assert.False(ProxyCards.IsProxy("TST_BUFF_1"));
-        Assert.False(ProxyCards.IsProxy("TST_BC_DMG"));
-        Assert.False(ProxyCards.IsProxy("TST_FREEZE_AOE"));
+        Assert.NotNull(buff.Power?.PowerTask);
+        Assert.Contains(PlayReq.REQ_FRIENDLY_TARGET, buff.PlayRequirements.Keys);
+        Assert.Contains(PlayReq.REQ_TARGET_IF_AVAILABLE, archer.PlayRequirements.Keys);
+        Assert.NotNull(freeze.Power?.PowerTask);
 
         Game game = new ScenarioBuilder()
             .WithMana(10)
-            .WithHand("TST_BUFF_1", "TST_BC_DMG", "TST_FREEZE_AOE")
             .WithDeck("Chillwind Yeti")
             .WithBoard("Bloodfen Raptor")
             .WithOpponentBoard("River Crocolisk")
             .Build();
 
-        // 1. Buff friendly Raptor (+2/+3 and Taunt -> 5/5 Taunt)
-        PlayerTask buff = game.CurrentPlayer.Options().First(t => t is PlayCardTask { Source.Card.Id: "TST_BUFF_1" });
-        Assert.True(game.Process(buff));
-        Minion raptor = game.CurrentPlayer.BoardZone[0];
+        Controller me = game.CurrentPlayer;
+        Minion raptor = me.BoardZone[0];
+        Minion enemyCrocolisk = game.CurrentOpponent.BoardZone[0];
+
+        buff.Power!.PowerTask.Process(game, me, me.Hero, raptor);
         Assert.Equal((5, 5, true), (raptor.AttackDamage, raptor.Health, raptor.HasTaunt));
 
-        // 2. Play Flame Archer targeting enemy Crocolisk (3 -> 1 HP)
-        PlayerTask archer = game.CurrentPlayer.Options()
-            .First(t => t is PlayCardTask { Source.Card.Id: "TST_BC_DMG", Target: Minion });
-        Assert.True(game.Process(archer));
-        Assert.Equal(1, game.CurrentOpponent.BoardZone[0].Health);
+        archer.Power!.PowerTask.Process(game, me, raptor, enemyCrocolisk);
+        Assert.Equal(1, enemyCrocolisk.Health);
 
-        // 3. Cast Frost Wave -> freezes enemy Crocolisk and draws Chillwind Yeti
-        PlayerTask freeze = game.CurrentPlayer.Options().First(t => t is PlayCardTask { Source.Card.Id: "TST_FREEZE_AOE" });
-        Assert.True(game.Process(freeze));
-        Assert.True(game.CurrentOpponent.BoardZone[0].IsFrozen);
-        Assert.Contains(game.CurrentPlayer.HandZone, c => c.Card.Name == "Chillwind Yeti");
+        freeze.Power!.PowerTask.Process(game, me, me.Hero, null);
+        Assert.True(enemyCrocolisk.IsFrozen);
+        Assert.Contains(me.HandZone, c => c.Card.Name == "Chillwind Yeti");
     }
 
     [Fact]
