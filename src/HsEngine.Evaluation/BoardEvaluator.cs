@@ -5,8 +5,8 @@ using SabberStoneCore.Model.Entities;
 namespace HsEngine.Evaluation;
 
 /// <summary>
-/// Hand-tuned weights for the Slice 0 heuristic (ADR-0006). Defaults are starting points to be fitted offline;
-/// <see cref="Scale"/> and <see cref="Bias"/> are the logistic calibration Win% = σ(Scale·score + Bias).
+/// Hand-tuned weights for the heuristic evaluator (ADR-0006). <see cref="Scale"/> and <see cref="Bias"/> are the
+/// logistic calibration Win% = σ(Scale·score + Bias).
 /// </summary>
 public sealed record EvaluationWeights
 {
@@ -19,6 +19,11 @@ public sealed record EvaluationWeights
     public double Windfury { get; init; } = 1.0;
     public double Stealth { get; init; } = 0.5;
     public double Lifesteal { get; init; } = 0.5;
+    public double Poisonous { get; init; } = 2.0;
+    public double Reborn { get; init; } = 1.2;
+    public double SpellPower { get; init; } = 1.0;
+    /// <summary>Penalty applied to a frozen minion with positive attack (loses its next swing).</summary>
+    public double FrozenPenalty { get; init; } = 0.8;
     /// <summary>Per point of weapon attack × durability.</summary>
     public double Weapon { get; init; } = 0.5;
     public double CardInHand { get; init; } = 2.5;
@@ -30,7 +35,8 @@ public sealed record EvaluationWeights
 
 /// <summary>
 /// Static evaluation of a position from one player's perspective (ARCH-0001 §3.2): health pools, board control,
-/// card advantage and lethal threat. Antisymmetric by construction: score(p) = -score(opponent of p).
+/// keyword/spell-power threats, card advantage and lethal threat. Antisymmetric by construction:
+/// score(p) = -score(opponent of p).
 /// </summary>
 public sealed class BoardEvaluator(EvaluationWeights? weights = null)
 {
@@ -86,20 +92,28 @@ public sealed class BoardEvaluator(EvaluationWeights? weights = null)
         if (minion.HasWindfury) value += _w.Windfury;
         if (minion.HasStealth) value += _w.Stealth;
         if (minion.HasLifeSteal) value += _w.Lifesteal;
+        if (minion.Poisonous) value += _w.Poisonous;
+        if (minion[GameTag.REBORN] > 0) value += _w.Reborn;
+        if (minion.SpellPower > 0) value += _w.SpellPower * minion.SpellPower;
+        if (minion.IsFrozen && minion.AttackDamage > 0) value -= _w.FrozenPenalty;
         return value;
     }
 
     private static int EffectiveHealth(Controller side) => Math.Max(0, side.Hero.Health + side.Hero.Armor);
 
     /// <summary>
-    /// Damage <paramref name="attacker"/>'s board could push face next turn. Taunts must be cleared first,
-    /// approximated by subtracting the blockers' total taunt health.
+    /// Damage <paramref name="attacker"/>'s board could push face next turn. Excludes frozen and non-attacking
+    /// minions, and subtracts the blockers' total taunt health.
     /// </summary>
     private static int BoardDamage(Controller attacker, Controller blockers)
     {
-        int damage = attacker.Hero.Weapon?.AttackDamage ?? 0;
+        int damage = !attacker.Hero.IsFrozen && attacker.Hero.Weapon is { } w ? w.AttackDamage : 0;
         foreach (Minion minion in attacker.BoardZone)
+        {
+            if (minion.IsFrozen || minion.CantAttack || minion.CantAttackHeroes || minion.AttackDamage <= 0)
+                continue;
             damage += minion.AttackDamage * (minion.HasWindfury ? 2 : 1);
+        }
 
         foreach (Minion minion in blockers.BoardZone)
             if (minion.HasTaunt)

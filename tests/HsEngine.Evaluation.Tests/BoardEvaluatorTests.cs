@@ -116,4 +116,26 @@ public class BoardEvaluatorTests
         Assert.InRange(p, 0.5, 1.0);
         Assert.True(p < 1.0);
     }
+
+    [Fact]
+    public void Frozen_minion_is_penalised_and_does_not_count_toward_lethal_threat()
+    {
+        Game unfrozen = new ScenarioBuilder().WithHero(3).WithOpponentBoard("Bloodfen Raptor").Build();
+        Game frozen = new ScenarioBuilder().WithHero(3).WithOpponentBoard("Bloodfen Raptor").Build();
+        frozen.CurrentOpponent.BoardZone[0].IsFrozen = true;
+
+        double unfrozenScore = _evaluator.Evaluate(unfrozen, unfrozen.CurrentPlayer);
+        double frozenScore = _evaluator.Evaluate(frozen, frozen.CurrentPlayer);
+
+        // Freezing a lethal attacker removes both the 15-point LethalThreat and applies the freeze penalty.
+        Assert.True(frozenScore - unfrozenScore > 15.0);
+    }
+
+    [Fact]
+    public void Poisonous_and_spell_power_increase_minion_value()
+    {
+        // Emperor Cobra (2/3 Poisonous) vs River Crocolisk (2/3 vanilla); Kobold Geomancer (2/2 +1 SP) vs Pint-Sized Summoner (2/2, no keyword).
+        Assert.True(Score(new ScenarioBuilder().WithBoard("Emperor Cobra")) > Score(new ScenarioBuilder().WithBoard("River Crocolisk")));
+        Assert.True(Score(new ScenarioBuilder().WithBoard("Kobold Geomancer")) > Score(new ScenarioBuilder().WithBoard("Pint-Sized Summoner")));
+    }
 }

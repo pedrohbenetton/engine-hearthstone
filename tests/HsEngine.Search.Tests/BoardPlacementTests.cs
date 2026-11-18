@@ -111,4 +111,39 @@ public class BoardPlacementTests
 
         Assert.True(lethal.IsLethal);
     }
+
+    [Fact]
+    public void Collapses_symmetric_twin_minion_attackers_and_targets()
+    {
+        // Five identical ready Bloodfen Raptors facing three identical Goldshire Footmen:
+        // instead of 5 * 3 = 15 symmetric attack options at the root, only pos 0 -> pos 0 is canonical!
+        Game game = new ScenarioBuilder()
+            .WithBoard("Bloodfen Raptor", "Bloodfen Raptor", "Bloodfen Raptor", "Bloodfen Raptor", "Bloodfen Raptor")
+            .WithOpponentBoard("Goldshire Footman", "Goldshire Footman", "Goldshire Footman")
+            .Build();
+
+        List<PlayerTask> canonicalAttacks = game.CurrentPlayer.Options()
+            .Where(t => t is MinionAttackTask && BoardPlacement.IsCanonicalOption(t))
+            .ToList();
+
+        PlayerTask only = Assert.Single(canonicalAttacks);
+        Assert.Equal(0, ((SabberStoneCore.Model.Entities.Minion)only.Source!).ZonePosition);
+        Assert.Equal(0, ((SabberStoneCore.Model.Entities.Minion)only.Target!).ZonePosition);
+    }
+
+    [Fact]
+    public void Twin_minions_attack_sequentially_in_plan_after_earlier_twin_exhausts()
+    {
+        Game game = new ScenarioBuilder()
+            .WithMana(0)
+            .WithOpponentHero(6)
+            .WithBoard("Bloodfen Raptor", "Bloodfen Raptor")
+            .Build();
+
+        LethalResult lethal = new LethalSolver().Solve(game);
+
+        Assert.True(lethal.IsLethal);
+        Assert.True(lethal.IsDeterministic);
+        Assert.Equal(2, lethal.OptionPath.Count);
+    }
 }

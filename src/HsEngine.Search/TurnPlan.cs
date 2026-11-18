@@ -84,8 +84,10 @@ public static class TurnPlanner
 
     private static PlayerTask? SelectTask(List<PlayerTask> options, ActionKey key) =>
         key.Placement >= 0
-            ? options.FirstOrDefault(t => ActionKey.From(t, preservePlacement: true) == key)
-            : options.FirstOrDefault(t => BoardPlacement.IsCanonicalOption(t) && ActionKey.From(t) == key);
+            ? options.FirstOrDefault(t => BoardPlacement.IsCanonicalOption(t) && ActionKey.From(t, preservePlacement: true) == key)
+              ?? options.FirstOrDefault(t => ActionKey.From(t, preservePlacement: true) == key)
+            : options.FirstOrDefault(t => BoardPlacement.IsCanonicalOption(t) && ActionKey.From(t) == key)
+              ?? options.FirstOrDefault(t => ActionKey.From(t) == key);
 
     private static PlanStep Step(Game game, PlayerTask task, ActionKey key)
     {

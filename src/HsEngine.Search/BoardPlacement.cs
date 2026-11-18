@@ -7,11 +7,13 @@ using SabberStoneCore.Tasks.PlayerTasks;
 namespace HsEngine.Search;
 
 /// <summary>
-/// Decides whether the board slot (<see cref="PlayCardTask.ZonePosition"/>) of a played minion can change the game.
-/// SabberStone enumerates <c>0..BoardZone.Count</c> for every minion, which splits ISMCTS visits across identical
-/// placements and fills the recommendation list with duplicate lines when nothing in play or in hand is positional.
-/// Only observable zones (both boards, both weapons, and the mover's own hand) are inspected, so the decision is
-/// invariant across determinizations of hidden information.
+/// Eliminates symmetric board options in SO-ISMCTS, LethalSolver and rollout policies:
+/// <list type="number">
+/// <item>Minion <see cref="PlayCardTask.ZonePosition"/> slots collapse to the rightmost slot when nothing observable is positional.</item>
+/// <item>Identical ready friendly twin minions attack left-to-right (collapsing <c>k!</c> token permutations to <c>1</c>).</item>
+/// <item>Identical twin target minions collapse to the leftmost twin when nothing observable is positional.</item>
+/// </list>
+/// Only observable zones are inspected, preserving determinization invariance.
 /// </summary>
 public static partial class BoardPlacement
 {
@@ -20,18 +22,8 @@ public static partial class BoardPlacement
         || card.Modular
         || (card.Text is { } text && PositionalPattern().IsMatch(text));
 
-    public static bool Matters(PlayCardTask play)
+    public static bool HasPositionalEffects(Controller me)
     {
-        if (play.ZonePosition < 0 || play.Source is not Minion)
-            return false;
-
-        Controller me = play.Controller;
-        if (me.BoardZone.Count == 0)
-            return false;
-
-        if (CaresAboutPosition(play.Source.Card))
-            return true;
-
         foreach (Minion minion in me.BoardZone)
             if (CaresAboutPosition(minion.Card))
                 return true;
@@ -54,14 +46,76 @@ public static partial class BoardPlacement
         return false;
     }
 
-    /// <summary>
-    /// Keeps all slots when <see cref="Matters"/> is true, and otherwise only the canonical rightmost slot
-    /// (<c>ZonePosition == BoardZone.Count</c>), which leaves existing friendly minion indices untouched.
-    /// </summary>
-    public static bool IsCanonicalOption(PlayerTask task) =>
-        task is not PlayCardTask { ZonePosition: >= 0, Source: Minion } play
-        || Matters(play)
-        || play.ZonePosition == play.Controller.BoardZone.Count;
+    public static bool Matters(PlayCardTask play) =>
+        play.ZonePosition >= 0
+        && play.Source is Minion
+        && play.Controller.BoardZone.Count > 0
+        && (CaresAboutPosition(play.Source.Card) || HasPositionalEffects(play.Controller));
+
+    public static bool IsCanonicalOption(PlayerTask task)
+    {
+        Controller me = task.Controller;
+
+        if (task is PlayCardTask { ZonePosition: >= 0, Source: Minion } play
+            && !Matters(play)
+            && play.ZonePosition != me.BoardZone.Count)
+        {
+            return false;
+        }
+
+        if (HasPositionalEffects(me))
+            return true;
+
+        if (task is MinionAttackTask { Source: Minion attacker } && HasEarlierTwin(attacker, requireCanAttack: true))
+            return false;
+
+        if (task.Target is Minion target && HasEarlierTwin(target, requireCanAttack: false, exclude: task.Source))
+            return false;
+
+        return true;
+    }
+
+    public static bool AreIndistinguishableTwins(Minion a, Minion b) =>
+        a.Card.AssetId == b.Card.AssetId
+        && a.AttackDamage == b.AttackDamage
+        && a.Health == b.Health
+        && a.Damage == b.Damage
+        && a.IsExhausted == b.IsExhausted
+        && a.NumAttacksThisTurn == b.NumAttacksThisTurn
+        && a.CanAttack == b.CanAttack
+        && a.AttackableByRush == b.AttackableByRush
+        && a.HasTaunt == b.HasTaunt
+        && a.HasDivineShield == b.HasDivineShield
+        && a.HasWindfury == b.HasWindfury
+        && a.HasStealth == b.HasStealth
+        && a.Poisonous == b.Poisonous
+        && a.HasLifeSteal == b.HasLifeSteal
+        && a[GameTag.REBORN] == b[GameTag.REBORN]
+        && a.IsFrozen == b.IsFrozen
+        && a.CantAttack == b.CantAttack
+        && a.CantAttackHeroes == b.CantAttackHeroes
+        && a.CantBeTargetedBySpells == b.CantBeTargetedBySpells
+        && a.SpellPower == b.SpellPower
+        && a.HasDeathrattle == b.HasDeathrattle
+        && (a.AppliedEnchantments?.Count ?? 0) == 0
+        && (b.AppliedEnchantments?.Count ?? 0) == 0;
+
+    private static bool HasEarlierTwin(Minion minion, bool requireCanAttack, IPlayable? exclude = null)
+    {
+        int index = minion.ZonePosition;
+        var board = minion.Controller.BoardZone;
+        for (int i = 0; i < index && i < board.Count; i++)
+        {
+            Minion earlier = board[i];
+            if (!ReferenceEquals(earlier, exclude)
+                && (!requireCanAttack || earlier.CanAttack)
+                && AreIndistinguishableTwins(earlier, minion))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     [GeneratedRegex(@"\b(adjacent|next to|neighbors?|left-?most|right-?most|opposite|either side)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
